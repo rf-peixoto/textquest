@@ -1,0 +1,458 @@
+{
+  "meta": {
+    "title": "The Cavern of Echoes",
+    "author": "textquest demo",
+    "start": "camp",
+    "clear_screen": true,
+    "typewriter_cps": 0,
+    "stats": [
+      "score",
+      "health",
+      "gold",
+      "luck"
+    ]
+  },
+  "variables": {
+    "score": 0,
+    "health": 10,
+    "gold": 6,
+    "luck": 2,
+    "troll_defeated": false,
+    "gold_spent": 0,
+    "troll_killed": false,
+    "knows_troll": false,
+    "persuade_dc": 16
+  },
+  "items": {
+    "torch": {
+      "name": "Torch",
+      "description": "A resin-soaked torch. Burns bright."
+    },
+    "key": {
+      "name": "Iron Key",
+      "description": "Old and heavy. Opens something."
+    },
+    "coin": {
+      "name": "Gold Coin",
+      "description": "Stamped with a forgotten king."
+    },
+    "potion": {
+      "name": "Healing Potion",
+      "description": "Smells of mint and regret. Restores 1d6 health."
+    },
+    "charm": {
+      "name": "Lucky Charm",
+      "description": "A rabbit's foot. +2 luck while equipped.",
+      "slot": "trinket",
+      "modifiers": {
+        "luck": 2
+      }
+    },
+    "amulet": {
+      "name": "Amulet of Echoes",
+      "description": "It hums when you speak."
+    }
+  },
+  "shops": {
+    "peddler": {
+      "name": "The Old Peddler's Cart",
+      "currency": "gold",
+      "greeting": "\"Everything a doomed adventurer needs, friend. No refunds.\"",
+      "stock": [
+        {
+          "item": "torch",
+          "price": 2,
+          "qty": 1
+        },
+        {
+          "item": "potion",
+          "price": 3,
+          "qty": 2,
+          "on_buy": [
+            "set gold_spent = gold_spent + 3"
+          ]
+        },
+        {
+          "item": "charm",
+          "price": 4,
+          "qty": 1,
+          "on_buy": [
+            "set gold_spent = gold_spent + 4",
+            "say [dim]The peddler winks. \"Wear it, don't pocket it.\"[/]"
+          ]
+        }
+      ],
+      "buys": {
+        "coin": 2,
+        "amulet": 1
+      }
+    }
+  },
+  "achievements": {
+    "well_prepared": {
+      "name": "Well Prepared",
+      "description": "Own a torch and a healing potion at the same time.",
+      "if": "has('torch') and has('potion')",
+      "reward": [
+        "set score = score + 5"
+      ]
+    },
+    "troll_slayer": {
+      "name": "Troll Slayer",
+      "description": "Defeat the bridge troll in combat.",
+      "if": "troll_killed",
+      "reward": [
+        "set score = score + 10"
+      ]
+    },
+    "silver_tongue": {
+      "name": "Silver Tongue",
+      "description": "Talk your way past the troll.",
+      "secret": true
+    },
+    "hoarder": {
+      "name": "Hoarder",
+      "description": "Hold 12 or more gold at once.",
+      "if": "gold >= 12"
+    },
+    "echo_bearer": {
+      "name": "Echo Bearer",
+      "description": "Claim the Amulet of Echoes.",
+      "if": "has('amulet')"
+    },
+    "dressed_for_success": {
+      "name": "Dressed for Success",
+      "description": "Equip the Lucky Charm.",
+      "if": "equipped('charm')"
+    }
+  },
+  "triggers": [
+    {
+      "id": "death_by_wounds",
+      "if": "health <= 0",
+      "once": false,
+      "goto": "death"
+    }
+  ],
+  "scenes": {
+    "camp": {
+      "title": "The Camp",
+      "music": "camp_theme.ogg",
+      "text": "Dawn breaks over your camp at the mouth of the [bold]Cavern of Echoes[/]. An old peddler has parked his creaking cart beside your dead fire, entirely uninvited.\n\nLegend says an [magenta]amulet[/] sleeps in the depths — and that no one who entered without light ever came back.\n\nYou have [yellow]{gold} gold[/], [red]{health} health[/], luck [cyan]{luck}[/].",
+      "on_first_enter": [
+        "say [dim]Type 'help' at any prompt to see commands ('ach' shows achievements).[/]"
+      ],
+      "choices": [
+        {
+          "text": "Talk to the peddler",
+          "dialogue": "peddler_talk"
+        },
+        {
+          "text": "Browse the peddler's cart",
+          "shop": "peddler"
+        },
+        {
+          "text": "Drink a healing potion",
+          "if": "has('potion') and health < 10",
+          "do": [
+            "take potion",
+            "roll healed = 1d6",
+            "set health = min(10, health + healed)",
+            "say You feel warmth spread through your ribs. Health: [red]{health}[/]"
+          ]
+        },
+        {
+          "text": "Search the campsite",
+          "if": "not visited('searched_camp')",
+          "do": [
+            "say You dig around the fire pit and find two [yellow]gold coins[/]!",
+            "give coin 2",
+            "goto searched_camp"
+          ]
+        },
+        {
+          "text": "Enter the cavern",
+          "goto": "entrance"
+        }
+      ]
+    },
+    "searched_camp": {
+      "title": "The Camp",
+      "text": "Nothing else here but ash and cold coffee. The peddler pretends not to watch you. The cavern waits.",
+      "choices": [
+        {
+          "text": "Back to the fire",
+          "goto": "camp"
+        },
+        {
+          "text": "Enter the cavern",
+          "goto": "entrance"
+        }
+      ]
+    },
+    "entrance": {
+      "title": "Cavern Entrance",
+      "music": "cave_theme.ogg",
+      "text": "The air turns cold. Ahead, the passage splits.\n\nTo the [cyan]left[/], you hear water dripping. To the [cyan]right[/], a faint [green]glow[/]... and heavy breathing.",
+      "on_enter": [
+        "sfx wind.wav"
+      ],
+      "choices": [
+        {
+          "text": "Take the left passage (dark)",
+          "if": "has('torch')",
+          "goto": "flooded_hall",
+          "show_locked": true,
+          "locked_text": "too dark without a torch"
+        },
+        {
+          "text": "Take the right passage (glowing)",
+          "goto": "troll_bridge"
+        },
+        {
+          "text": "Retreat to camp",
+          "goto": "camp"
+        }
+      ]
+    },
+    "flooded_hall": {
+      "title": "The Flooded Hall",
+      "text": "Your torch throws dancing shadows over a half-drowned hall. On a stone pedestal above the waterline rests an [bold]iron key[/].\n\nSomething long and pale moves beneath the black water. Reaching the pedestal will take a steady footing... or luck.",
+      "choices": [
+        {
+          "text": "Wade in carefully (agility check: 1d20 + luck vs 12)",
+          "if": "not has('key')",
+          "do": [
+            "roll agility = 1d20 + luck",
+            {
+              "if": "agility >= 12",
+              "do": [
+                "say You move slow and silent. The water never stirs.",
+                "give key",
+                "set score = score + 10"
+              ],
+              "else": [
+                "say You slip! Something [red]bites your leg[/] before you scramble out. (-3 health)",
+                "set health = health - 3",
+                "sfx splash.wav"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Go back",
+          "goto": "entrance"
+        }
+      ]
+    },
+    "troll_bridge": {
+      "title": "The Troll Bridge",
+      "text": "A rope bridge spans a glowing chasm. A [bold green]troll[/] blocks the way, picking its teeth with a femur.\n\n[green]\"Toll is five gold,\"[/] it rumbles. [green]\"Or five fingers. Your pick.\"[/]",
+      "choices": [
+        {
+          "text": "Pay 5 gold",
+          "if": "gold >= 5 and not troll_defeated",
+          "do": [
+            "set gold = gold - 5",
+            "set gold_spent = gold_spent + 5",
+            "set troll_defeated = true",
+            "say The troll bows with surprising grace and steps aside."
+          ],
+          "goto": "sanctum"
+        },
+        {
+          "text": "Persuade it (charisma check: 1d20 + luck vs {persuade_dc})",
+          "if": "not troll_defeated",
+          "do": [
+            "set persuade_dc = 13 if knows_troll else 16",
+            "roll charisma = 1d20 + luck",
+            {
+              "if": "charisma >= persuade_dc",
+              "do": [
+                "say You compliment its femur toothpick at length. The troll blushes [green]greener[/] and waves you through.",
+                "set troll_defeated = true",
+                "unlock silver_tongue",
+                "goto sanctum"
+              ],
+              "else": [
+                "say [green]\"Flattery,\"[/] the troll yawns, [green]\"is not legal tender.\"[/]"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Fight the troll (your 1d20 + luck vs its 1d20 + 4)",
+          "if": "not troll_defeated",
+          "do": [
+            "roll your_attack = 1d20 + luck",
+            "roll troll_attack = 1d20 + 4",
+            {
+              "if": "your_attack >= troll_attack",
+              "do": [
+                "say You duck under its club and shove it into the chasm!",
+                "set troll_defeated = true",
+                "set troll_killed = true",
+                "set score = score + 15"
+              ],
+              "else": [
+                "roll troll_damage = 1d4",
+                "say The club catches your ribs. ([red]-{troll_damage} health[/])",
+                "set health = health - troll_damage",
+                "sfx hit.wav"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Cross the bridge",
+          "if": "troll_defeated",
+          "goto": "sanctum"
+        },
+        {
+          "text": "Back away slowly",
+          "goto": "entrance"
+        }
+      ]
+    },
+    "sanctum": {
+      "title": "The Echoing Sanctum",
+      "music": "sanctum_theme.ogg",
+      "text": "A vast dome of crystal. Every footstep returns to you a hundred times.\n\nIn the center, behind a [bold]locked iron gate[/], the [magenta]Amulet of Echoes[/] floats above an altar.",
+      "choices": [
+        {
+          "text": "Unlock the gate with the iron key",
+          "if": "has('key')",
+          "do": [
+            "take key",
+            "give amulet",
+            "set score = score + 25",
+            "sfx unlock.wav"
+          ],
+          "goto": "victory",
+          "show_locked": true,
+          "locked_text": "you need a key"
+        },
+        {
+          "text": "Force the gate (strength check: 1d20 vs 19)",
+          "do": [
+            "roll strength = 1d20",
+            {
+              "if": "strength >= 19",
+              "do": [
+                "say With a scream of metal, the gate tears from its hinges!",
+                "give amulet",
+                "set score = score + 20",
+                "goto victory"
+              ],
+              "else": [
+                "say The iron doesn't budge. Your palms bleed. (-1 health)",
+                "set health = health - 1"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Leave the sanctum",
+          "goto": "troll_bridge"
+        }
+      ]
+    },
+    "victory": {
+      "title": "Victory",
+      "end": true,
+      "music": "victory_theme.ogg",
+      "text": "The amulet settles cold against your chest, whispering every word you've ever said back to you.\n\nYou walk out of the Cavern of Echoes into the morning light. The peddler is already gone.\n\n[bold bright_yellow]Final score: {score}[/]   [red]Health: {health}[/]   [yellow]Gold: {gold}[/]"
+    },
+    "death": {
+      "title": "Darkness",
+      "end": true,
+      "text": "Your wounds are too deep. The echoes carry your last breath into the dark, and keep it.\n\n[dim]Final score: {score}[/]"
+    }
+  },
+  "dialogues": {
+    "peddler_talk": {
+      "name": "Old Peddler",
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": "\"Buying? Selling? Or just here to breathe my air?\"",
+          "responses": [
+            {
+              "text": "What do you know about the cavern?",
+              "goto": "cavern"
+            },
+            {
+              "text": "Who are you, anyway?",
+              "goto": "who"
+            },
+            {
+              "text": "Any advice for me?",
+              "goto": "advice",
+              "if": "not visited('searched_camp')"
+            },
+            {
+              "text": "Nothing. Goodbye.",
+              "exit": true
+            }
+          ]
+        },
+        "cavern": {
+          "text": "\"Echoes down there repeat everything you say. Some say the amulet listens back. The troll on the bridge — big softie, if you know how to talk to him. Or if you have [yellow]five gold[/].\"",
+          "do": [
+            "set knows_troll = true"
+          ],
+          "responses": [
+            {
+              "text": "Anything else?",
+              "goto": "cavern2"
+            },
+            {
+              "text": "Thanks. (back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "cavern2": {
+          "text": "\"The left passage floods. Things live in flood water. Bring [red]light[/] and [cyan]luck[/] — luck especially. That's why I sell charms, friend.\"",
+          "responses": [
+            {
+              "text": "Subtle sales pitch. (back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "who": {
+          "text": "\"A businessman. I set up shop wherever adventurers gather... briefly.\" He smiles with too many teeth.",
+          "responses": [
+            {
+              "text": "That's ominous. (back)",
+              "goto": "hello"
+            },
+            {
+              "text": "\"Briefly?\"",
+              "goto": "briefly"
+            }
+          ]
+        },
+        "briefly": {
+          "text": "\"Well. You lot don't tend to come back, do you? No refunds.\"",
+          "responses": [
+            {
+              "text": "(back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "advice": {
+          "text": "\"Dig around your own fire pit before you go digging in caves.\" He taps his nose.",
+          "responses": [
+            {
+              "text": "...noted. (back)",
+              "goto": "hello"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

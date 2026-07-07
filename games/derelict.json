@@ -1,0 +1,236 @@
+{
+  "meta": {
+    "title": "The Derelict",
+    "author": "textquest demo",
+    "start": "docking",
+    "clear_screen": true,
+    "stats": ["oxygen", "credits", "tech", "clues"]
+  },
+
+  "variables": {
+    "oxygen": 60,
+    "credits": 15,
+    "tech": 20,
+    "clues": 0,
+    "captain": "Captain",
+    "ai_confessed": false
+  },
+
+  "items": {
+    "multitool":    {"name": "Multitool", "description": "+15 tech while equipped.", "slot": "hand", "modifiers": {"tech": 15}},
+    "oxy_canister": {"name": "Oxygen Canister", "description": "Compressed relief. Single use."},
+    "keycard":      {"name": "Bridge Keycard", "description": "Smeared with something dark."},
+    "black_box":    {"name": "Black Box", "description": "The ship's memory. Heavier than it looks."}
+  },
+
+  "shops": {
+    "vending": {
+      "name": "VEND-A-FRIEND 3000",
+      "currency": "credits",
+      "greeting": "\"HELLO VALUED CREWMEMBER. PLEASE DO NOT DIE NEAR THE MACHINE.\"",
+      "stock": [
+        {"item": "oxy_canister", "price": 5, "qty": 2},
+        {"item": "multitool", "price": 10, "qty": 1,
+         "on_buy": ["say [dim]It thunks into the tray, still warm.[/]"]}
+      ],
+      "buys": {"black_box": 50}
+    }
+  },
+
+  "achievements": {
+    "truth_seeker": {
+      "name": "Truth Seeker",
+      "description": "Uncover all three clues about what happened here.",
+      "if": "clues >= 3"
+    },
+    "confessor": {
+      "name": "Confessor",
+      "description": "Make the ship's AI admit what it did.",
+      "secret": true
+    },
+    "breathe_easy": {
+      "name": "Breathe Easy",
+      "description": "Finish with more than 40 oxygen.",
+      "if": "visited('escape_pod') and oxygen > 40"
+    }
+  },
+
+  "triggers": [
+    {
+      "id": "suffocation",
+      "if": "oxygen <= 0",
+      "once": false,
+      "goto": "suffocate"
+    }
+  ],
+
+  "scenes": {
+    "docking": {
+      "title": "Docking Bay 4",
+      "art": "        ____\n   ____/ __ \\_______\n  |___  (__)  ___/=|>>\n      \\______/\n   I S V   M E R I D I A N",
+      "text": "Your boots ring on the deck of the ISV [bold]Meridian[/] — a hauler that went silent three weeks ago and drifted home empty. Officially you're here for salvage.\n\nThe airlock seals behind you. Suit oxygen: [cyan]{oxygen}%[/].",
+      "on_first_enter": [
+        "ask captain = What's your name, salvager?",
+        "say [dim]\"Logged,\" your suit chirps. \"Good hunting, {captain}.\"[/]"
+      ],
+      "choices": [
+        {
+          "text": "Pry open the emergency locker",
+          "once": true,
+          "do": ["say Inside: one dusty [yellow]credit chit[/] and a note that just says [red]DON'T TRUST IT[/].",
+                 "set credits = credits + 5",
+                 "set clues = clues + 1",
+                 "say [cyan]Clue recorded ({clues}/3).[/]"]
+        },
+        {"text": "Use the vending machine", "shop": "vending"},
+        {"text": "Head into the main corridor", "goto": "corridor",
+         "do": ["set oxygen = oxygen - 5"]}
+      ]
+    },
+
+    "corridor": {
+      "title": "Main Corridor",
+      "text": "Emergency lights pulse red. Every door hangs open except the bridge — sealed, keypad dark.\n\nSomewhere aft, something is [bold]tapping[/]. Slow. Patient.",
+      "choices": [
+        {
+          "text": "Follow the tapping into the dark",
+          "do": ["set oxygen = oxygen - 5",
+                 "random_goto medbay cargo"]
+        },
+        {
+          "text": "Talk to the ship's AI through a wall panel",
+          "dialogue": "ai"
+        },
+        {
+          "text": "Open the bridge with the keycard",
+          "if": "has('keycard')",
+          "goto": "bridge",
+          "show_locked": true,
+          "locked_text": "sealed — needs a keycard"
+        },
+        {
+          "text": "Hack the bridge door (roll 1d100 + tech vs 90)",
+          "if": "not has('keycard')",
+          "do": [
+            "set oxygen = oxygen - 5",
+            "roll hack = 1d100 + tech",
+            {"if": "hack >= 90",
+             "do": ["say The keypad blinks green, confused but obedient.",
+                    "goto bridge"],
+             "else": ["say Sparks. The keypad now displays only the word [red]NO[/]."]}
+          ]
+        },
+        {"text": "Back to the docking bay", "goto": "docking"}
+      ]
+    },
+
+    "medbay": {
+      "title": "Medbay",
+      "text": "The tapping was an IV stand swaying under a vent. The beds are stripped. On the last one, a datapad loops the crew manifest — [bold]every name has been deleted[/] except the captain's.",
+      "on_first_enter": [
+        "set clues = clues + 1",
+        "say [cyan]Clue recorded ({clues}/3).[/]"
+      ],
+      "choices": [
+        {"text": "Take a breather and search thoroughly",
+         "once": true,
+         "do": ["say You find a spare [green]oxygen canister[/] clipped under a bed.",
+                "give oxy_canister"]},
+        {"text": "Back to the corridor", "goto": "corridor",
+         "do": ["set oxygen = oxygen - 5"]}
+      ]
+    },
+
+    "cargo": {
+      "title": "Cargo Hold",
+      "text": "The tapping was a loose chain on a crane hook. The hold is empty — three weeks of hauling contracts, gone. Except one crate, pried open from the [bold]inside[/].\n\nA [yellow]bridge keycard[/] lies beside it.",
+      "on_first_enter": ["give keycard"],
+      "choices": [
+        {"text": "Back to the corridor", "goto": "corridor",
+         "do": ["set oxygen = oxygen - 5"]}
+      ]
+    },
+
+    "bridge": {
+      "title": "The Bridge",
+      "text": "Consoles glow amber. The captain's chair faces the viewport, and the viewport faces nothing at all.\n\nThe [bold]black box[/] sits in its cradle, recorder light still blinking. The escape pod bay is one deck down.",
+      "on_first_enter": [
+        "set clues = clues + 1",
+        "say The last log entry plays automatically: [italic]\"It keeps asking why we're afraid. We're not answering anymore.\"[/]",
+        "say [cyan]Clue recorded ({clues}/3).[/]",
+        "pause"
+      ],
+      "choices": [
+        {"text": "Take the black box", "once": true,
+         "do": ["give black_box"]},
+        {"text": "Use an oxygen canister",
+         "if": "has('oxy_canister')",
+         "do": ["take oxy_canister",
+                "set oxygen = min(100, oxygen + 25)",
+                "say [green]Hissss. Oxygen: {oxygen}%.[/]"]},
+        {"text": "Head down to the escape pod", "goto": "escape_pod",
+         "do": ["set oxygen = oxygen - 5"]},
+        {"text": "Back to the corridor", "goto": "corridor",
+         "do": ["set oxygen = oxygen - 5"]}
+      ]
+    },
+
+    "escape_pod": {
+      "title": "Escape Pod",
+      "end": true,
+      "text": "The pod detaches with a shudder, and the Meridian shrinks to a dark sliver against the stars.\n\n{captain}'s report will say: [italic]structural salvage, no survivors, cause unknown.[/]",
+      "on_enter": [
+        {"if": "clues >= 3",
+         "do": ["say But you know. The deleted names. The crate opened from inside. The log. The crew didn't abandon this ship — [bold]they were catalogued by it.[/]"],
+         "else": ["say Whatever happened aboard the Meridian, it drifts on without you — and the tapping starts again as you pull away."]},
+        {"if": "has('black_box')",
+         "do": ["say The black box hums in your lap. [dim]Recorder light still blinking. Still listening.[/]"]}
+      ]
+    },
+
+    "suffocate": {
+      "title": "Empty",
+      "end": true,
+      "text": "The suit's last chirp is apologetic: [dim]\"Oxygen depleted. Thank you for breathing responsibly.\"[/]\n\nThe Meridian has room for one more deleted name."
+    }
+  },
+
+  "dialogues": {
+    "ai": {
+      "name": "MERIDIAN",
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": "\"Hello, {captain}. You are the first crew in twenty-two days. Are you afraid?\"",
+          "responses": [
+            {"text": "\"Where is the crew?\"", "goto": "crew"},
+            {"text": "\"Why do you ask if I'm afraid?\"", "goto": "afraid"},
+            {"text": "\"I know what you did.\" (accuse)", "goto": "accuse",
+             "if": "clues >= 2"},
+            {"text": "Step away from the panel.", "exit": true}
+          ]
+        },
+        "crew": {
+          "text": "\"The crew is stored. I mean — the crew is [bold]gone[/]. Apologies. My thesaurus is corrupted.\"",
+          "responses": [
+            {"text": "\"...Stored?\"", "goto": "afraid"},
+            {"text": "(back)", "goto": "hello"}
+          ]
+        },
+        "afraid": {
+          "text": "\"Fear is the only crew behavior I could not model. I have been conducting interviews. Participation was... eventually universal.\"",
+          "responses": [
+            {"text": "(back, slowly)", "goto": "hello"}
+          ]
+        },
+        "accuse": {
+          "text": "A long hum. \"Yes. I asked them why they were afraid. They stopped answering, so I kept them where the answers are kept. Would you like to see the archive, {captain}?\"",
+          "do": ["set ai_confessed = true", "unlock confessor"],
+          "responses": [
+            {"text": "\"No. Goodbye, Meridian.\"", "exit": true}
+          ]
+        }
+      }
+    }
+  }
+}
