@@ -33,6 +33,8 @@ python3 textquest.py --new  mygame.json     # create a game (opens editor)
 python3 textquest.py --edit mygame.json     # edit a game
 python3 textquest.py --check mygame.json    # validate: errors & warnings
 python3 textquest.py --map  mygame.json     # draw the scene graph
+python3 textquest.py --autoplay 50 game.json # bot-play 50 times: crashes,
+                                             # endings, unreached content
 
 python3 creator.py                          # editor, asks for a filename
 python3 creator.py mygame.json              # creates if new, edits if not
@@ -40,13 +42,20 @@ python3 engine.py  games/derelict.json      # playing works directly too
 ```
 
 Play flags: `--debug` (show engine warnings), `--no-color`, `--no-clear`
-(don't wipe the screen between scenes), `--seed N` (reproducible dice).
+(don't wipe the screen between scenes), `--seed N` (reproducible dice),
+`--start SCENE` (begin anywhere — playtesting). Colors and unicode degrade
+gracefully: Windows terminals get VT mode enabled automatically, and every
+symbol has an ASCII fallback when the console can't render unicode.
 
 While playing, the screen is wiped between scenes for immersion — but never
 before you've read what's on it: whenever effects, dice rolls, or messages
 appear, the engine waits for Enter before clearing. In-game commands:
 choice numbers, `inv`/`i`, `stats`, `ach`, `equip <item>` / `unequip
-<item>`, `save [slot]`, `load [slot]`, `help`, `quit`.
+<item>`, `back` (undo your last move — up to 60 steps), `save [slot]`,
+`load [slot]`, `help`, `quit`. The engine autosaves every scene, so
+`load auto` resumes after a crash or an accidental quit; saves are stamped
+with the game's title and content hash, and loading warns if the game file
+has changed since the save was made.
 
 ## Creating a game (start here)
 
@@ -78,7 +87,12 @@ triggers, and settings. The workflow that works:
    this plus an effects cheatsheet (also available by typing `?` at any
    effects prompt).
 
-`--check` separates **errors** (anything that will break at runtime: gotos
+`--check` separates **errors**: on top of structural checks, it now
+statically validates *every expression in the game* — each `if`, every
+`set`/`roll`/`contest` right-hand side, even `{if ...}` blocks inside
+prose — catching syntax errors, unknown functions, and references to
+variables that are never defined or assigned anywhere. A `helth > 5` typo
+is caught at check time, not mid-playthrough. It also separates (anything that will break at runtime: gotos
 to missing scenes, shops stocking undefined items, dialogue responses to
 missing nodes) from **warnings** (design smells: unreachable scenes, silent
 dead ends, wearable modifiers on slot-less items). Exit code 1 on errors,
@@ -140,7 +154,10 @@ dialogue nodes, shop transactions, or achievement rewards:
 | `take keycard` / `take ration 2` | inventory out (auto-unequips gear) |
 | `say The lights die one by one.` | print a line (markup + `{vars}`) |
 | `goto cellar` | jump to a scene |
-| `random_goto medbay cargo hold` | jump to one of several, at random |
+| `random_goto lucky*3 unlucky` | weighted random jump (`*N` = weight) |
+| `call take_damage` | run a named macro (shared effect block) |
+| `draw cave_loot` | roll on a weighted outcome table |
+| `contest duel = 1d20 + skill vs guard` | opposed roll vs an NPC stat block |
 | `shop vending` / `dialogue widow` | open a shop / conversation |
 | `equip multitool` / `unequip multitool` | wear / remove gear |
 | `unlock case_closed` | grant an achievement manually |
@@ -150,7 +167,18 @@ dialogue nodes, shop transactions, or achievement rewards:
 
 An effect can also be a conditional block —
 `{"if": "roll_result >= 15", "do": [...], "else": [...]}` — which is the
-whole pattern for skill checks, opposed rolls, and branching consequences.
+whole pattern for skill checks and branching consequences (the editor has a
+guided form for these: just start an effect line with `if <condition>`).
+
+**Macros** (`"macros": {"take_damage": [...]}`) are shared effect blocks —
+define damage handling or time passing once, `call` it everywhere.
+**Tables** (`"tables": {"cave_loot": [{"weight": 3, "do": [...]}, ...]}`)
+are weighted outcome pools for loot, encounters, and random events; entries
+can carry `if` conditions. **NPCs** (`"npcs": {"guard": {"name": "Guard",
+"roll": "1d20 + 4"}}`) are reusable opponents: `contest duel = 1d20 + skill
+vs guard` rolls both sides visibly and stores `duel` (your total minus
+theirs — win if `> 0`, tie if `== 0`), plus `duel_you` / `duel_them` for
+flavor text.
 
 ### Conditions — the questions
 
@@ -184,6 +212,17 @@ naturally. **Achievements** auto-unlock when their `if` turns true, or
 manually via `unlock`; `secret: true` hides them until earned; `reward`
 effects run once; `ach` shows progress.
 
+### Living prose
+
+Scenes can carry a `revisit_text` shown on every visit after the first —
+the cheap trick that makes places feel remembered rather than static. And
+any text supports inline conditionals, nesting included:
+
+```
+{if has('torch')}The torchlight steadies you.{else}You grope forward in
+the dark{if fear > 5}, and something gropes back{end}.{end}
+```
+
 ### Text markup and templating
 
 `{variable}` substitution plus `[tag]...[/]` styling in any text: colors
@@ -202,6 +241,30 @@ machine trades in credits, a multitool is `hand`-slot equipment boosting
 `tech`, a noise in the dark is a `random_goto`, clue-gated dialogue makes
 the ship's AI confess, and the ending changes with your clue count. Diff
 the two files: the engine parts are identical; only the nouns changed.
+
+## Autoplay — the fuzzer that playtests for you
+
+`--autoplay 50` unleashes a bot on your game fifty times: it picks random
+choices, chats with NPCs, shops badly, answers `ask` prompts with nonsense,
+and reports back — crashes (with the seed to replay them), which endings
+were reached and how often, scenes never visited, achievements never
+unlocked, and sessions that hit the 400-turn cap (loop suspects). Run it
+after every writing session; it's the difference between "I think act two
+works" and knowing. It found real design facts about the demos on its
+first run: two achievements almost no player will stumble into.
+
+## The editor is faster than code
+
+That's the design bar. The tools that clear it: **jump to scene** by id or
+prefix from the main menu or scene list; **find text anywhere** across
+scenes, choices, and dialogue with jump-to-result; **playtest from any
+scene** with setup effects (`set gold = 50`, `give torch`, `equip charm`) —
+test act three without replaying act one; **guided conditional effects**
+(type `if health <= 0` at any effects prompt and it walks you through
+then/else); **prose export/import** — dump every scene's text to a `.txt`,
+rewrite it in your own editor, import it back; a `.bak` backup before
+every save; and invisible **stable ids** on one-time choices and triggers
+so reordering content in the editor never corrupts a player's save.
 
 ## Ideas for where to take it next
 

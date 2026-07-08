@@ -95,6 +95,37 @@ _CMP_OPS = {
 }
 
 
+KNOWN_FUNCTIONS = {
+    "chance", "randint", "min", "max", "abs", "int", "len", "roll",
+    "has", "count", "visited", "visits", "turn", "equipped",
+    "d4", "d6", "d8", "d10", "d12", "d20", "d100",
+}
+_LITERAL_NAMES = {"true", "True", "false", "False", "none", "None", "null"}
+
+
+def check_expression(expr: str, known_vars: set[str]) -> str | None:
+    """Statically validate an expression without executing it.
+    Returns an error message, or None if the expression looks sound."""
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        return f"syntax error: {e.msg}"
+    for node in ast.walk(tree):
+        if not isinstance(node, _ALLOWED_NODES):
+            return f"disallowed syntax: {type(node).__name__}"
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                return "only simple function calls are allowed"
+            if node.func.id not in KNOWN_FUNCTIONS:
+                return f"unknown function '{node.func.id}()'"
+        elif isinstance(node, ast.Name):
+            name = node.id
+            if (name not in known_vars and name not in _LITERAL_NAMES
+                    and name not in KNOWN_FUNCTIONS):
+                return f"unknown variable '{name}'"
+    return None
+
+
 class ExpressionError(Exception):
     pass
 

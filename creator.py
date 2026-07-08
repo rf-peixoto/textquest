@@ -26,10 +26,12 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
+import uuid
 
 from tools import render_map, validate_game
-from ui import Terminal
+from ui import SYM, Terminal
 
 STUB_TEXT = "[draft] Write this scene's text."
 
@@ -99,7 +101,17 @@ runs. The ones you'll use constantly:
   [cyan]give keycard[/] / [cyan]take keycard[/]     inventory in/out
   [cyan]say The lights go out.[/]         print a line
   [cyan]goto scene_id[/] / [cyan]random_goto a b c[/]   jump / random jump
+  [cyan]call macro[/] / [cyan]draw table[/]     reuse effect blocks / roll loot tables
+  [cyan]contest x = 1d20+skill vs npc[/]  opposed roll (win if x > 0)
   [cyan]music file.ogg[/] / [cyan]sfx file.wav[/] / [cyan]pause[/] / [cyan]end[/]
+
+[bold]Prose tricks:[/] {if has('torch')}The room is lit.{else}Darkness.{end}
+inside any text; 'revisit_text' on a scene for return visits.
+
+[bold]Workflow tools:[/] 'jump to scene', 'find text anywhere',
+'save & playtest' can start from ANY scene with setup effects (test act 3
+without replaying act 1), 'export prose' to write in your own editor.
+Players get autosave + a 'back' (undo) command for free.
 
 [bold]Conditions[/] gate choices, stock, dialogue lines, triggers,
 achievements: [cyan]clues >= 3 and not visited('basement')[/]. You can use
@@ -165,13 +177,38 @@ class Creator:
             if line == "?":
                 self.term.echo(
                     "[dim]set v = expr · roll v = 1d20+mod · "
-                    "ask v = question · give item · take item · say text · "
-                    "goto scene · random_goto a b c · shop id · dialogue id · "
-                    "equip item · unequip item · unlock ach · music f.ogg · "
-                    "sfx f.wav · pause · end[/]")
+                    "contest v = expr vs npc · ask v = question · "
+                    "give/take item · equip/unequip item · say text · "
+                    "goto scene · random_goto a*3 b · call macro · "
+                    "draw table · shop id · dialogue id · unlock ach · "
+                    "music f.ogg · sfx f.wav · pause · end[/]\n"
+                    "[dim]Start a line with 'if <condition>' for a guided "
+                    "branch (then/else effects).[/]")
                 continue
             if not line:
                 break
+            if line.startswith("if ") and len(line) > 3:
+                block: dict = {"if": line[3:].strip()}
+                self.term.echo("[dim]  effects when TRUE (empty line = "
+                               "done):[/]")
+                then = []
+                while True:
+                    sub = self.term.prompt("[dim]  then> [/]").strip()
+                    if not sub:
+                        break
+                    then.append(sub)
+                block["do"] = then
+                if self.confirm("  Add an ELSE branch?"):
+                    other = []
+                    self.term.echo("[dim]  effects when FALSE:[/]")
+                    while True:
+                        sub = self.term.prompt("[dim]  else> [/]").strip()
+                        if not sub:
+                            break
+                        other.append(sub)
+                    block["else"] = other
+                lines.append(block)
+                continue
             lines.append(line)
         return lines
 
@@ -257,7 +294,9 @@ class Creator:
                       f"{' [draft]' if STUB_TEXT in s.get('text', '') else ''}"
                       f"  ({len(s.get('choices', []))} ch)"
                       for sid, s in scenes.items()]
-            action = self.pick("Scenes", labels, extra={"a": "add scene"})
+            action = self.pick("Scenes", labels,
+                               extra={"a": "add scene",
+                                      "g": "jump by id / prefix"})
             if action is None:
                 return
             if action == "a":
@@ -267,6 +306,8 @@ class Creator:
                                    "text": self.ask_multiline("Scene text"),
                                    "choices": []}
                     self.dirty = True
+            elif action == "g":
+                self.jump_to_scene()
             else:
                 self.edit_scene(ids[action])
 
@@ -854,34 +895,290 @@ class Creator:
         self.dirty = True
 
     # ------------------------------------------------------------------ #
+    # navigation & search — the "faster than writing code" tools
+    # ------------------------------------------------------------------ #
+    def jump_to_scene(self) -> None:
+        scenes = self.game["scenes"]
+        query = self.ask("Scene id (a unique prefix works)")
+        if not query:
+            return
+        matches = [sid for sid in scenes if sid == query] or \
+                  [sid for sid in scenes if sid.startswith(query)]
+        if len(matches) == 1:
+            self.edit_scene(matches[0])
+        elif matches:
+            self.term.echo(f"[dim]ambiguous: {', '.join(matches)}[/]")
+            self.term.pause(force=True)
+        else:
+            if self.confirm(f"No scene matches '{query}'. Create it?"):
+                scenes[query] = {"title": query, "text": STUB_TEXT,
+                                 "choices": []}
+                self.dirty = True
+                self.edit_scene(query)
+
+    def search_text(self) -> None:
+        query = self.ask("Search all game text for").lower()
+        if not query:
+            return
+        hits: list[tuple[str, str, str]] = []  # (kind, id, snippet)
+
+        def snip(text: str) -> str:
+            at = text.lower().find(query)
+            return text[max(0, at - 30):at + 40].replace("\n", " ")
+
+        for sid, scene in self.game["scenes"].items():
+            hay = " ".join([scene.get("text", ""), scene.get("title", ""),
+                            scene.get("revisit_text", "")])
+            if query in hay.lower():
+                hits.append(("scene", sid, snip(hay)))
+            for ch in scene.get("choices", []):
+                if query in ch.get("text", "").lower():
+                    hits.append(("scene", sid,
+                                 "choice: " + snip(ch["text"])))
+        for did, dlg in self.game["dialogues"].items():
+            for nid, node in dlg.get("nodes", {}).items():
+                hay = node.get("text", "") + " ".join(
+                    r.get("text", "") for r in node.get("responses", []))
+                if query in hay.lower():
+                    hits.append(("dialogue", did, f"node {nid}: {snip(hay)}"))
+        if not hits:
+            self.term.echo(f"[dim]No hits for '{query}'.[/]")
+            self.term.pause(force=True)
+            return
+        labels = [f"[{kind} {ident}] {SYM['more']}{snippet}{SYM['more']}"
+                  for kind, ident, snippet in hits]
+        picked = self.pick(f"Hits for '{query}'", labels)
+        if picked is None:
+            return
+        kind, ident, _ = hits[picked]
+        if kind == "scene":
+            self.edit_scene(ident)
+        else:
+            self._dialogue_form(ident)
+
+    # ------------------------------------------------------------------ #
+    # advanced content: macros, tables, npcs
+    # ------------------------------------------------------------------ #
+    def edit_advanced(self) -> None:
+        while True:
+            g = self.game
+            action = self.pick(
+                "Advanced (reusable building blocks)",
+                [f"effect macros ({len(g.get('macros', {}))}) — shared "
+                 f"effect lists, run with 'call name'",
+                 f"random tables ({len(g.get('tables', {}))}) — weighted "
+                 f"outcomes, run with 'draw name'",
+                 f"NPC stat blocks ({len(g.get('npcs', {}))}) — reusable "
+                 f"opponents for 'contest x = expr vs npc'"])
+            if action is None:
+                return
+            (self.edit_macros, self.edit_tables, self.edit_npcs)[action]()
+
+    def edit_macros(self) -> None:
+        while True:
+            macros = self.game.setdefault("macros", {})
+            ids = list(macros)
+            labels = [f"{mid}  ({len(fx)} effect(s))"
+                      for mid, fx in macros.items()]
+            action = self.pick("Effect macros", labels,
+                               extra={"a": "add macro"})
+            if action is None:
+                return
+            self.dirty = True
+            if action == "a":
+                mid = self.ask("Macro name (e.g. take_damage, pass_time)")
+                if not mid or mid in macros:
+                    continue
+            else:
+                mid = ids[action]
+                if self.confirm("Delete this macro instead of editing?"):
+                    del macros[mid]
+                    continue
+            macros[mid] = self.ask_effects(f"Effects of '{mid}'",
+                                           macros.get(mid))
+
+    def edit_tables(self) -> None:
+        while True:
+            tables = self.game.setdefault("tables", {})
+            ids = list(tables)
+            labels = [f"{tid}  ({len(entries)} outcome(s))"
+                      for tid, entries in tables.items()]
+            action = self.pick("Random tables (loot, events, encounters)",
+                               labels, extra={"a": "add table"})
+            if action is None:
+                return
+            self.dirty = True
+            if action == "a":
+                tid = self.ask("Table name (e.g. cave_loot, random_event)")
+                if not tid or tid in tables:
+                    continue
+                tables[tid] = []
+            else:
+                tid = ids[action]
+                if self.confirm("Delete this table instead of editing?"):
+                    del tables[tid]
+                    continue
+            entries = tables[tid]
+            while True:
+                elabels = [f"weight {e.get('weight', 1)}: "
+                           f"{'; '.join(str(x) for x in e.get('do', []))[:50]}"
+                           for e in entries]
+                sub = self.pick(f"Table '{tid}' — one outcome is drawn, "
+                                f"odds by weight", elabels,
+                                extra={"a": "add outcome"})
+                if sub is None:
+                    break
+                if sub == "a":
+                    entry: dict = {}
+                    try:
+                        entry["weight"] = int(self.ask("Weight", "1"))
+                    except ValueError:
+                        entry["weight"] = 1
+                    entry["do"] = self.ask_effects("Effects of this outcome")
+                    cond = self.ask("Condition 'if' (empty = always in "
+                                    "the pool)")
+                    if cond:
+                        entry["if"] = cond
+                    entries.append(entry)
+                elif self.confirm("Delete this outcome?"):
+                    entries.pop(sub)
+
+    def edit_npcs(self) -> None:
+        while True:
+            npcs = self.game.setdefault("npcs", {})
+            ids = list(npcs)
+            labels = [f"{nid} — {n.get('name', '?')}  rolls "
+                      f"{n.get('roll', '1d20')}" for nid, n in npcs.items()]
+            action = self.pick("NPC stat blocks", labels,
+                               extra={"a": "add NPC"})
+            if action is None:
+                return
+            self.dirty = True
+            if action == "a":
+                nid = self.ask("NPC id (e.g. troll, guard_captain)")
+                if not nid or nid in npcs:
+                    continue
+            else:
+                nid = ids[action]
+                if self.confirm("Delete this NPC instead of editing?"):
+                    del npcs[nid]
+                    continue
+            npc = npcs.get(nid, {})
+            npc["name"] = self.ask("Display name", npc.get("name", nid))
+            npc["roll"] = self.ask("Contest roll (e.g. 1d20 + 4)",
+                                   npc.get("roll", "1d20"))
+            npcs[nid] = npc
+            self.term.echo(f"[dim]Use it: contest fight = 1d20 + skill vs "
+                           f"{nid}   (then branch on fight > 0)[/]")
+            self.term.pause(force=True)
+
+    # ------------------------------------------------------------------ #
+    # prose export / import — write in your own editor
+    # ------------------------------------------------------------------ #
+    PROSE_MARK = "=== scene: "
+
+    def export_prose(self) -> None:
+        out = os.path.splitext(self.path)[0] + "_prose.txt"
+        with open(out, "w", encoding="utf-8") as f:
+            f.write("# Edit the text under each marker, keep the marker "
+                    "lines intact,\n# then use 'import prose' in the "
+                    "editor.\n\n")
+            for sid, scene in self.game["scenes"].items():
+                f.write(f"{self.PROSE_MARK}{sid} ===\n")
+                f.write(scene.get("text", "") + "\n\n")
+        self.term.echo(f"[green]Wrote {out}[/]", wrap=False)
+        self.term.pause(force=True)
+
+    def import_prose(self) -> None:
+        src = os.path.splitext(self.path)[0] + "_prose.txt"
+        if not os.path.isfile(src):
+            self.term.echo(f"[red]{src} not found — export first.[/]")
+            self.term.pause(force=True)
+            return
+        with open(src, encoding="utf-8") as f:
+            content = f.read()
+        current, buf, updated = None, [], 0
+
+        def flush():
+            nonlocal updated
+            if current and current in self.game["scenes"]:
+                text = "\n".join(buf).strip()
+                if text and text != self.game["scenes"][current].get("text"):
+                    self.game["scenes"][current]["text"] = text
+                    updated += 1
+
+        for line in content.splitlines():
+            if line.startswith(self.PROSE_MARK):
+                flush()
+                current = line[len(self.PROSE_MARK):].rstrip("= ").strip()
+                buf = []
+            elif not line.startswith("#") or buf:
+                buf.append(line)
+        flush()
+        self.dirty = updated > 0
+        self.term.echo(f"[green]Updated {updated} scene(s) from {src}[/]",
+                       wrap=False)
+        self.term.pause(force=True)
+
+    # ------------------------------------------------------------------ #
     # validate / save / play
     # ------------------------------------------------------------------ #
     def show_validation(self) -> None:
         errors, warnings = validate_game(self.game)
         if not errors and not warnings:
-            self.term.echo("[bold green]✓ No problems found.[/]")
+            self.term.echo(f"[bold green]{SYM['check']} No problems found.[/]")
         for e in errors:
-            self.term.echo(f"[bold red]✗ {e}[/]")
+            self.term.echo(f"[bold red]{SYM['cross']} {e}[/]")
         for w in warnings:
-            self.term.echo(f"[yellow]⚠ {w}[/]")
+            self.term.echo(f"[yellow]{SYM['warn']} {w}[/]")
         drafts = [sid for sid, s in self.game["scenes"].items()
                   if STUB_TEXT in s.get("text", "")]
         if drafts:
             self.term.echo(f"[dim]drafts to write: {', '.join(drafts)}[/]")
         self.term.pause(force=True)
 
+    def _assign_stable_ids(self) -> None:
+        """One-time choices and triggers need identity that survives
+        reordering, or saves silently corrupt. Assigned invisibly on save."""
+        for scene in self.game["scenes"].values():
+            for ch in scene.get("choices", []):
+                if ch.get("once") and not ch.get("id"):
+                    ch["id"] = "ch_" + uuid.uuid4().hex[:8]
+        for trig in self.game.get("triggers", []):
+            if not trig.get("id"):
+                trig["id"] = "trig_" + uuid.uuid4().hex[:8]
+
     def save(self) -> None:
+        self._assign_stable_ids()
+        if os.path.isfile(self.path):          # never lose the last version
+            try:
+                shutil.copy2(self.path, self.path + ".bak")
+            except OSError:
+                pass
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(self.game, f, indent=2, ensure_ascii=False)
         self.dirty = False
-        self.term.echo(f"[green]Saved {self.path}[/]", wrap=False)
+        self.term.echo(f"[green]Saved {self.path}[/] "
+                       f"[dim](previous version in .bak)[/]", wrap=False)
 
     def playtest(self) -> None:
         self.save()
         from engine import Engine
+        scenes = self.game["scenes"]
+        start = self.ask("Start from scene (empty = normal start)")
+        if start and start not in scenes:
+            matches = [sid for sid in scenes if sid.startswith(start)]
+            start = matches[0] if len(matches) == 1 else ""
+        setup = []
+        if start:
+            self.term.echo("[dim]Optional setup run before playing — e.g. "
+                           "'set gold = 50', 'give torch', 'equip charm'. "
+                           "Lets you test act 3 without replaying act 1.[/]")
+            setup = self.ask_effects("Setup effects")
         self.term.echo("[dim]— playtest (debug on) —[/]", wrap=False)
         try:
-            Engine(self.path, debug=True).run()
+            Engine(self.path, debug=True, start_scene=start or None,
+                   setup_effects=setup).run()
         except Exception as e:  # never let a playtest crash the editor
             self.term.echo(f"[bold red]Playtest crashed: {e}[/]")
         self.term.pause(force=True)
@@ -895,51 +1192,46 @@ class Creator:
                        f"{len(g['shops'])} shops · "
                        f"{len(g['dialogues'])} dialogues"
                        + (" · [yellow]UNSAVED[/]" if self.dirty else ""))
-            action = self.pick(f"Main menu   [dim]{summary}[/]", [
-                "scenes...", "choices are inside each scene ➜ (see scenes)",
-                "items...", "starting variables...", "shops...",
-                "dialogues...", "achievements...",
-                "triggers (global rules)...", "game settings (meta)",
-                "validate", "show map", "save", "save & playtest",
-                "help — how this all works"])
+            actions = [
+                ("scenes...", self.edit_scenes),
+                ("jump to scene (by id)", self.jump_to_scene),
+                ("find text anywhere", self.search_text),
+                ("items...", self.edit_items),
+                ("starting variables...", self.edit_variables),
+                ("shops...", self.edit_shops),
+                ("dialogues...", self.edit_dialogues),
+                ("achievements...", self.edit_achievements),
+                ("triggers (global rules)...", self.edit_triggers),
+                ("advanced: macros, tables, NPCs...", self.edit_advanced),
+                ("game settings (meta)", self.edit_meta),
+                ("validate", self.show_validation),
+                ("show map", None),
+                ("save", None),
+                ("save & playtest", self.playtest),
+                ("export prose to .txt (write in your own editor)",
+                 self.export_prose),
+                ("import prose back from .txt", self.import_prose),
+                ("help — how this all works", None),
+            ]
+            action = self.pick(f"Main menu   [dim]{summary}[/]",
+                               [label for label, _ in actions])
             if action is None:
                 if self.dirty and not self.confirm(
                         "Quit without saving changes?"):
                     continue
                 return
-            if action == 0:
-                self.edit_scenes()
-            elif action == 1:
-                self.term.echo("[dim]Choices live inside scenes: open "
-                               "'scenes', pick one, then 'choices...'.[/]")
-                self.term.pause(force=True)
-            elif action == 2:
-                self.edit_items()
-            elif action == 3:
-                self.edit_variables()
-            elif action == 4:
-                self.edit_shops()
-            elif action == 5:
-                self.edit_dialogues()
-            elif action == 6:
-                self.edit_achievements()
-            elif action == 7:
-                self.edit_triggers()
-            elif action == 8:
-                self.edit_meta()
-            elif action == 9:
-                self.show_validation()
-            elif action == 10:
+            label, handler = actions[action]
+            if label == "show map":
                 self.term.echo(render_map(self.game), wrap=False)
                 self.term.pause(force=True)
-            elif action == 11:
+            elif label == "save":
                 self.save()
                 self.term.pause(force=True)
-            elif action == 12:
-                self.playtest()
-            elif action == 13:
+            elif label.startswith("help"):
                 self.term.echo(HELP_TEXT)
                 self.term.pause(force=True)
+            else:
+                handler()
 
 
 # ---------------------------------------------------------------------- #

@@ -46,7 +46,7 @@ import sys
 from audio import AudioManager
 from dsl import Evaluator, ExpressionError, _DICE_RE, roll_dice
 from state import GameState
-from ui import Terminal
+from ui import SYM, Terminal
 
 
 class GameError(Exception):
@@ -71,7 +71,10 @@ class Engine:
 
     def __init__(self, game_path: str, terminal: Terminal | None = None,
                  audio: AudioManager | None = None, save_dir: str | None = None,
-                 debug: bool = False, seed: int | None = None):
+                 debug: bool = False, seed: int | None = None,
+                 start_scene: str | None = None,
+                 setup_effects: list | None = None,
+                 max_turns: int | None = None):
         self.game_path = os.path.abspath(game_path)
         self.game_dir = os.path.dirname(self.game_path)
         self.debug = debug
@@ -88,6 +91,9 @@ class Engine:
         self.shops: dict = self.game.get("shops", {})
         self.achievements: dict = self.game.get("achievements", {})
         self.dialogues: dict = self.game.get("dialogues", {})
+        self.macros: dict = self.game.get("macros", {})
+        self.tables: dict = self.game.get("tables", {})
+        self.npcs: dict = self.game.get("npcs", {})
         if not self.scenes:
             raise GameError("Game has no scenes.")
         self.start_scene = self.meta.get("start") or next(iter(self.scenes))
@@ -103,9 +109,15 @@ class Engine:
         self.audio = audio or AudioManager(asset_dir=asset_dir)
         self.save_dir = save_dir or os.path.join(self.game_dir, "saves")
 
+        if start_scene and start_scene in self.scenes:
+            self.start_scene = start_scene
         self.state = GameState(self.game.get("variables", {}), self.start_scene)
+        self._setup_effects = setup_effects or []
+        self.max_turns = max_turns
         self._running = False
         self._pending_goto: str | None = None
+        self._macro_depth = 0
+        self._history: list[dict] = []   # per-turn snapshots for 'back'
         self._validate()
 
     # ------------------------------------------------------------------ #
@@ -210,7 +222,7 @@ class Engine:
             qty = int(parts[1]) if len(parts) > 1 else 1
             self.state.give(parts[0], qty)
             name = self._item_name(parts[0])
-            self.term.echo(f"[green]▸ You got: {name}"
+            self.term.echo(f"[green]{SYM['arrow']} You got: {name}"
                            f"{f' x{qty}' if qty > 1 else ''}[/]")
         elif cmd == "take":
             parts = shlex.split(rest)
@@ -220,7 +232,7 @@ class Engine:
                 self._unequip_item(parts[0], silent=True)
             if self.state.take(parts[0], qty):
                 name = self._item_name(parts[0])
-                self.term.echo(f"[yellow]▸ You lost: {name}"
+                self.term.echo(f"[yellow]{SYM['arrow']} You lost: {name}"
                                f"{f' x{qty}' if qty > 1 else ''}[/]")
         elif cmd == "roll":
             # "roll attack = 1d20 + strength"  -> rolls dice, shows the roll,
@@ -267,9 +279,62 @@ class Engine:
             except ValueError:
                 self.state.variables[name] = answer
         elif cmd == "random_goto":
-            targets = rest.split()
+            # weighted syntax: "random_goto medbay*3 cargo" (default weight 1)
+            targets, weights = [], []
+            for token in rest.split():
+                name, _, w = token.partition("*")
+                targets.append(name)
+                weights.append(max(1, int(w)) if w.isdigit() else 1)
             if targets:
-                self._pending_goto = random.choice(targets)
+                self._pending_goto = random.choices(targets,
+                                                    weights=weights)[0]
+        elif cmd == "call":
+            # run a named macro from game["macros"] (shared effect blocks)
+            if self._macro_depth >= 16:
+                self._warn(f"macro recursion too deep at 'call {rest}'")
+                return
+            macro = self.macros.get(rest)
+            if macro is None:
+                self._warn(f"unknown macro {rest!r}")
+                return
+            self._macro_depth += 1
+            try:
+                self.run_effects(macro)
+            finally:
+                self._macro_depth -= 1
+        elif cmd == "draw":
+            # weighted loot/event table: pick one entry, run its effects
+            table = self.tables.get(rest)
+            if not table:
+                self._warn(f"unknown table {rest!r}")
+                return
+            entries = [e for e in table if self.check(e.get("if"))]
+            if not entries:
+                return
+            picked = random.choices(
+                entries, weights=[max(1, int(e.get("weight", 1)))
+                                  for e in entries])[0]
+            self.run_effects(picked.get("do", []))
+        elif cmd == "contest":
+            # "contest fight = 1d20 + luck vs troll" -> rolls both sides
+            # visibly; stores fight = your total - their total (win if > 0),
+            # plus fight_you / fight_them for flavor text.
+            left, _, right = rest.partition(" vs ")
+            name, _, your_expr = left.partition("=")
+            name, your_expr = name.strip(), your_expr.strip()
+            right = right.strip()
+            if not name or not your_expr or not right:
+                self._warn(f"bad contest (want 'contest x = expr vs "
+                           f"npc_or_expr'): {eff!r}")
+                return
+            npc = self.npcs.get(right)
+            their_expr = npc.get("roll", "1d20") if npc else right
+            their_name = npc.get("name", right) if npc else right
+            self._do_roll(f"{name}_you", your_expr)
+            self._do_roll(f"{name}_them", their_expr, label=their_name)
+            self.state.variables[name] = (
+                self.state.variables.get(f"{name}_you", 0)
+                - self.state.variables.get(f"{name}_them", 0))
         elif cmd == "pause":
             self.term.pause(force=True)
         elif cmd == "goto":
@@ -282,7 +347,7 @@ class Engine:
     # ------------------------------------------------------------------ #
     # dice
     # ------------------------------------------------------------------ #
-    def _do_roll(self, name: str, expr: str) -> None:
+    def _do_roll(self, name: str, expr: str, label: str | None = None) -> None:
         """Roll dice in <expr> (may mix variables: '1d20 + luck'), display the
         individual faces, store the total in variable <name>."""
         display_parts: list[str] = []
@@ -308,7 +373,8 @@ class Engine:
             self._warn(str(e))
             return
         self.state.variables[name] = value
-        self.term.echo(f"[bold magenta]🎲[/] [cyan]{name}[/]: "
+        self.term.echo(f"[bold magenta]{SYM['dice']}[/] "
+                       f"[cyan]{label or name}[/]: "
                        f"{''.join(display_parts).strip()} "
                        f"[bold]= {value}[/]", wrap=False)
 
@@ -354,7 +420,7 @@ class Engine:
         mods = item.get("modifiers", {})
         mod_str = ", ".join(f"{'+' if v >= 0 else ''}{v} {k}"
                             for k, v in mods.items())
-        self.term.echo(f"[green]▸ Equipped {item.get('name', item_id)} "
+        self.term.echo(f"[green]{SYM['arrow']} Equipped {item.get('name', item_id)} "
                        f"({slot})" + (f" — {mod_str}" if mod_str else "")
                        + "[/]")
         self._check_achievements()
@@ -366,7 +432,7 @@ class Engine:
                 del self.state.equipped[slot]
                 self._apply_modifiers(item_id, -1)
                 if not silent:
-                    self.term.echo(f"[yellow]▸ Unequipped "
+                    self.term.echo(f"[yellow]{SYM['arrow']} Unequipped "
                                    f"{self._item_name(item_id)}.[/]")
                 return
         if not silent:
@@ -436,13 +502,13 @@ class Engine:
                 self.term.page_break()  # pause on unread feedback, then wipe
             wallet = self.state.variables.get(currency, 0)
             self.term.echo()
-            self.term.rule("═")
+            self.term.rule(SYM["rule2"])
             self.term.echo(f"[bold bright_yellow]{shop.get('name', shop_id)}[/]"
                            f"   [dim]|[/]   you have [yellow]{wallet} "
                            f"{currency}[/]", wrap=False)
             if shop.get("greeting"):
                 self.term.echo(f"[italic]{self._template(shop['greeting'])}[/]")
-            self.term.rule("═")
+            self.term.rule(SYM["rule2"])
 
             entries: list[tuple] = []
             for idx, s in enumerate(shop.get("stock", [])):
@@ -494,14 +560,14 @@ class Engine:
                 if entry.get("qty") is not None:
                     stock_state[str(idx)] = (
                         stock_state.get(str(idx), entry["qty"]) - 1)
-                self.term.echo(f"[green]▸ Bought {self._item_name(item_id)} "
+                self.term.echo(f"[green]{SYM['arrow']} Bought {self._item_name(item_id)} "
                                f"for {price} {currency}.[/]")
                 self.run_effects(entry.get("on_buy", []))
             else:
                 if not self.state.take(item_id):
                     continue
                 self.state.variables[currency] = wallet + price
-                self.term.echo(f"[green]▸ Sold {self._item_name(item_id)} "
+                self.term.echo(f"[green]{SYM['arrow']} Sold {self._item_name(item_id)} "
                                f"for {price} {currency}.[/]")
                 self.run_effects(entry.get("on_sell", []))
             self._check_achievements()
@@ -518,7 +584,7 @@ class Engine:
             return
         self.state.achievements.append(ach_id)
         self.term.echo()
-        self.term.echo(f"[bold on_yellow][black] 🏆 ACHIEVEMENT UNLOCKED "
+        self.term.echo(f"[bold on_yellow][black] {SYM['trophy']} ACHIEVEMENT UNLOCKED "
                        f"[/][/] [bold bright_yellow]{ach.get('name', ach_id)}"
                        f"[/]", wrap=False)
         if ach.get("description"):
@@ -544,18 +610,65 @@ class Engine:
             name = ach.get("name", ach_id)
             desc = ach.get("description", "")
             if ach_id in self.state.achievements:
-                self.term.echo(f"  [bright_yellow]🏆 {name}[/]"
+                self.term.echo(f"  [bright_yellow]{SYM['trophy']} {name}[/]"
                                + (f" [dim]— {desc}[/]" if desc else ""))
             elif ach.get("secret"):
-                self.term.echo("  [dim]🔒 ??? — a secret achievement[/]")
+                self.term.echo(f"  [dim]{SYM['lock']} ??? — a secret achievement[/]")
             else:
-                self.term.echo(f"  [dim]🔒 {name}"
+                self.term.echo(f"  [dim]{SYM['lock']} {name}"
                                + (f" — {desc}" if desc else "") + "[/]")
 
     # ------------------------------------------------------------------ #
     # rendering helpers
     # ------------------------------------------------------------------ #
+    _COND_TOKEN = None  # compiled lazily below
+
+    def _resolve_conditionals(self, text: str) -> str:
+        """Expand {if cond}...{else}...{end} blocks (nesting supported)."""
+        if "{if " not in text:
+            return text
+        import re as _re
+        if Engine._COND_TOKEN is None:
+            Engine._COND_TOKEN = _re.compile(
+                r"\{if ([^{}]+)\}|\{else\}|\{end\}")
+        out: list[list[str]] = [[]]        # output buffer per nesting level
+        keep: list[bool] = [True]          # is the current branch rendered?
+        seen_else: list[bool] = []
+        pos = 0
+        for m in Engine._COND_TOKEN.finditer(text):
+            out[-1].append(text[pos:m.start()])
+            pos = m.end()
+            token = m.group(0)
+            if token.startswith("{if "):
+                cond = self.check(m.group(1)) and keep[-1]
+                keep.append(cond)
+                seen_else.append(False)
+                out.append([])
+            elif token == "{else}" and seen_else:
+                # flush the 'then' branch, flip visibility
+                branch = "".join(out.pop())
+                if keep[-1]:
+                    out[-1].append(branch)
+                keep[-1] = (not keep[-1]) and keep[-2] \
+                    if len(keep) > 1 else not keep[-1]
+                seen_else[-1] = True
+                out.append([])
+            elif token == "{end}" and seen_else:
+                branch = "".join(out.pop())
+                if keep.pop():
+                    out[-1].append(branch)
+                seen_else.pop()
+            else:
+                out[-1].append(token)  # stray {else}/{end}: leave verbatim
+        out[-1].append(text[pos:])
+        while len(out) > 1:            # unbalanced {if ...}: render leniently
+            branch = "".join(out.pop())
+            if keep.pop():
+                out[-1].append(branch)
+        return "".join(out[0])
+
     def _template(self, text: str) -> str:
+        text = self._resolve_conditionals(text)
         try:
             return _TemplateFormatter(self.state.variables).vformat(
                 text, (), {})
@@ -584,7 +697,7 @@ class Engine:
             qty_str = f" [dim]x{qty}[/]" if qty > 1 else ""
             eq = " [bright_green][equipped][/]" \
                 if item_id in self.state.equipped.values() else ""
-            self.term.echo(f"  [cyan]•[/] [bold]{name}[/]{qty_str}{eq}"
+            self.term.echo(f"  [cyan]{SYM['dot']}[/] [bold]{name}[/]{qty_str}{eq}"
                            + (f" [dim]— {desc}[/]" if desc else ""))
 
     def _show_stats(self) -> None:
@@ -600,17 +713,39 @@ class Engine:
         safe = "".join(c for c in slot if c.isalnum() or c in "-_") or "1"
         return os.path.join(self.save_dir, f"save_{safe}.json")
 
-    def _do_save(self, slot: str = "1") -> None:
+    def _game_fingerprint(self) -> dict:
+        import hashlib
+        blob = json.dumps(self.game, sort_keys=True).encode()
+        return {"title": self.meta.get("title", "?"),
+                "hash": hashlib.md5(blob).hexdigest()[:12]}
+
+    def _do_save(self, slot: str = "1", quiet: bool = False) -> None:
         path = self._save_path(slot)
-        self.state.save(path)
-        self.term.echo(f"[green]Game saved to slot '{slot}'.[/]")
+        data = self.state.to_dict()
+        data["game"] = self._game_fingerprint()
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        if not quiet:
+            self.term.echo(f"[green]Game saved to slot '{slot}'.[/]")
 
     def _do_load(self, slot: str = "1") -> bool:
         path = self._save_path(slot)
         if not os.path.isfile(path):
             self.term.echo(f"[red]No save found in slot '{slot}'.[/]")
             return False
-        self.state = GameState.load(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        fp, saved = self._game_fingerprint(), data.get("game", {})
+        if saved.get("title") and saved["title"] != fp["title"]:
+            self.term.echo(f"[yellow]{SYM['warn']} This save is from a "
+                           f"different game ('{saved['title']}'). Loading "
+                           f"anyway — expect weirdness.[/]")
+        elif saved.get("hash") and saved["hash"] != fp["hash"]:
+            self.term.echo(f"[yellow]{SYM['warn']} The game file changed "
+                           f"since this save was made. Loading anyway.[/]")
+        self.state = GameState.from_dict(data)
+        self._history.clear()
         self.term.echo(f"[green]Game loaded from slot '{slot}'.[/]")
         return True
 
@@ -622,7 +757,9 @@ class Engine:
             "  [cyan]stats[/]     show your variables\n"
             "  [cyan]ach[/]       show achievements\n"
             "  [cyan]equip[/] [dim]<item>[/] / [cyan]unequip[/] [dim]<item>[/]  manage gear\n"
-            "  [cyan]save[/] [dim][slot][/]  save game (e.g. 'save 2')\n"
+            "  [cyan]back[/]      undo your last move\n"
+            "  [cyan]save[/] [dim][slot][/]  save game (e.g. 'save 2'; "
+            "'load auto' resumes the autosave)\n"
             "  [cyan]load[/] [dim][slot][/]  load game\n"
             "  [cyan]help[/]      this text\n"
             "  [cyan]quit[/]      exit the game")
@@ -649,7 +786,7 @@ class Engine:
     def _available_choices(self, scene_id: str, scene: dict) -> list[dict]:
         result = []
         for i, ch in enumerate(scene.get("choices", [])):
-            key = f"{scene_id}#{i}"
+            key = ch.get("id") or f"{scene_id}#{i}"
             if ch.get("once") and key in self.state.used_choices:
                 continue
             if self.check(ch.get("if")):
@@ -658,7 +795,8 @@ class Engine:
                 result.append({**ch, "__locked__": True, "__key__": key})
         return result
 
-    def _render_scene(self, scene_id: str, scene: dict) -> None:
+    def _render_scene(self, scene_id: str, scene: dict,
+                      first_visit: bool = True) -> None:
         if self.meta.get("clear_screen", True):
             self.term.page_break()  # pause on unread output, then wipe
         title = scene.get("title", "")
@@ -677,6 +815,8 @@ class Engine:
             self.term.echo(art, wrap=False, markup=False)
             self.term.echo()
         text = scene.get("text", "")
+        if not first_visit and scene.get("revisit_text"):
+            text = scene["revisit_text"]
         if text:
             self.term.echo(self._template(text))
         self.term.echo()
@@ -712,6 +852,13 @@ class Engine:
                 self._equip(" ".join(args))
             elif cmd == "unequip" and args:
                 self._unequip_item(" ".join(args))
+            elif cmd == "back":
+                if len(self._history) >= 2:
+                    self._history.pop()          # snapshot of *this* scene
+                    self.state = GameState.from_dict(self._history.pop())
+                    self.term.echo("[dim]Rewinding one step...[/]")
+                    return None
+                self.term.echo("[dim]Nothing to go back to.[/]")
             elif cmd == "save":
                 self._do_save(args[0] if args else "1")
             elif cmd == "load":
@@ -743,8 +890,23 @@ class Engine:
     # ------------------------------------------------------------------ #
     def run(self) -> None:
         self._running = True
+        if self._setup_effects:
+            self.run_effects(self._setup_effects)
+            if self._pending_goto:
+                self.state.current_scene = self._pending_goto
+                self._pending_goto = None
         try:
             while self._running:
+                if self.max_turns and self.state.turn >= self.max_turns:
+                    break  # safety valve for autoplay / runaway goto loops
+                # per-turn snapshot for 'back', autosave for crashes/resume
+                self._history.append(self.state.to_dict())
+                del self._history[:-60]
+                if self.meta.get("autosave", True):
+                    try:
+                        self._do_save("auto", quiet=True)
+                    except OSError:
+                        pass
                 scene_id = self.state.current_scene
                 scene = self.scenes.get(scene_id)
                 if scene is None:
@@ -758,7 +920,7 @@ class Engine:
                 if scene.get("music"):
                     self.audio.play_music(scene["music"])
 
-                self._render_scene(scene_id, scene)
+                self._render_scene(scene_id, scene, first_visit)
 
                 # on_enter effects (on_first_enter runs only the first time)
                 self._pending_goto = None
@@ -815,6 +977,104 @@ class Engine:
 
 
 # ---------------------------------------------------------------------- #
+# Autoplay: a bot that random-walks the game to find crashes, dead ends,
+# unreachable content, and never-firing achievements. Doubles as the
+# project's regression test.
+# ---------------------------------------------------------------------- #
+class _BotTerminal(Terminal):
+    """Silent terminal that answers every prompt with plausible input."""
+
+    def __init__(self, rng: random.Random):
+        super().__init__(use_color=False)
+        self.rng = rng
+        self.moves = 0
+
+    def echo(self, *a, **k):  # swallow all output
+        self.output_since_mark = False
+
+    def clear(self):
+        pass
+
+    def pause(self, force: bool = False):
+        pass
+
+    def prompt(self, label: str = "> ") -> str:
+        self.moves += 1
+        if self.moves > 4000:      # emergency brake for pathological loops
+            self.eof = True
+            return "quit"
+        r = self.rng.random()
+        if "shop>" in label and r < 0.4:
+            return "leave"          # bots must eventually stop shopping
+        if r < 0.05:
+            return self.rng.choice(["inventory nonsense", "hello", "-1"])
+        return str(self.rng.randint(1, 5))
+
+
+def autoplay(game_path: str, sessions: int, base_seed: int = 0) -> int:
+    import traceback
+    term = Terminal()
+    endings: dict[str, int] = {}
+    scenes_seen: set[str] = set()
+    achievements_seen: set[str] = set()
+    crashes: list[tuple[int, str]] = []
+    stuck = 0
+
+    for i in range(sessions):
+        rng = random.Random(base_seed + i)
+        random.seed(base_seed + i)
+        engine = None
+        try:
+            engine = Engine(game_path, terminal=_BotTerminal(rng),
+                            audio=AudioManager(enabled=False),
+                            max_turns=400)
+            engine.meta["autosave"] = False
+            engine.run()
+        except Exception:
+            crashes.append((base_seed + i, traceback.format_exc()))
+        if engine is not None:
+            scenes_seen |= set(engine.state.visited)
+            achievements_seen |= set(engine.state.achievements)
+            last = engine.state.current_scene
+            if engine.scenes.get(last, {}).get("end") \
+                    or not engine.scenes.get(last, {}).get("choices"):
+                endings[last] = endings.get(last, 0) + 1
+            elif engine.state.turn >= 400:
+                stuck += 1
+
+    with open(game_path, encoding="utf-8") as f:
+        game = json.load(f)
+    all_scenes = set(game.get("scenes", {}))
+    all_achs = set(game.get("achievements", {}))
+
+    term.echo(f"[bold]autoplay:[/] {sessions} sessions of "
+              f"'{game.get('meta', {}).get('title', game_path)}'", wrap=False)
+    if crashes:
+        term.echo(f"[bold red]{SYM['cross']} {len(crashes)} crash(es)![/]",
+                  wrap=False)
+        term.echo(crashes[0][1], wrap=False, markup=False)
+        term.echo(f"[dim]first crash seed: {crashes[0][0]} — replay with "
+                  f"--seed {crashes[0][0]}[/]", wrap=False)
+    else:
+        term.echo(f"[bold green]{SYM['check']} no crashes[/]", wrap=False)
+    if stuck:
+        term.echo(f"[yellow]{SYM['warn']} {stuck} session(s) hit the "
+                  f"400-turn cap without ending (loop?)[/]", wrap=False)
+    term.echo("endings reached: " + (", ".join(
+        f"{k} x{v}" for k, v in sorted(endings.items())) or "none!"),
+        wrap=False)
+    never = sorted(all_scenes - scenes_seen)
+    if never:
+        term.echo(f"[yellow]{SYM['warn']} scenes never visited: "
+                  f"{', '.join(never)}[/]", wrap=False)
+    never_ach = sorted(all_achs - achievements_seen)
+    if never_ach:
+        term.echo(f"[yellow]{SYM['warn']} achievements never unlocked: "
+                  f"{', '.join(never_ach)}[/]", wrap=False)
+    return 1 if crashes else 0
+
+
+# ---------------------------------------------------------------------- #
 # CLI entry point:
 #   python -m textquest game.json            play
 #   python -m textquest --new  game.json     create a game (opens the editor)
@@ -837,6 +1097,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="validate the game and report errors/warnings")
     mode.add_argument("--map", action="store_true", dest="show_map",
                       help="print the scene graph")
+    mode.add_argument("--autoplay", type=int, metavar="N",
+                      help="bot-play the game N times and report crashes, "
+                           "endings, and unreached content")
     parser.add_argument("--debug", action="store_true",
                         help="show engine warnings (bad expressions, etc.)")
     parser.add_argument("--no-color", action="store_true")
@@ -844,6 +1107,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="don't clear the screen between scenes")
     parser.add_argument("--seed", type=int, default=None,
                         help="RNG seed (reproducible runs)")
+    parser.add_argument("--start", metavar="SCENE", default=None,
+                        help="start from this scene (playtesting)")
     args = parser.parse_args(argv)
 
     term = Terminal(use_color=False if args.no_color else None)
@@ -873,8 +1138,11 @@ def main(argv: list[str] | None = None) -> int:
             term.echo("[bold green]✓ No problems found.[/]", wrap=False)
         return 1 if errors else 0
 
+    if args.autoplay:
+        return autoplay(args.game, args.autoplay, base_seed=args.seed or 0)
+
     engine = Engine(args.game, terminal=term, debug=args.debug,
-                    seed=args.seed)
+                    seed=args.seed, start_scene=args.start)
     if args.no_clear:
         engine.meta["clear_screen"] = False
     engine.run()

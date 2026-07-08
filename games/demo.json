@@ -165,8 +165,7 @@
           "text": "Search the campsite",
           "if": "not visited('searched_camp')",
           "do": [
-            "say You dig around the fire pit and find two [yellow]gold coins[/]!",
-            "give coin 2",
+            "draw camp_loot",
             "goto searched_camp"
           ]
         },
@@ -174,7 +173,8 @@
           "text": "Enter the cavern",
           "goto": "entrance"
         }
-      ]
+      ],
+      "revisit_text": "Back at camp. The fire is down to embers and the peddler hums something off-key.\n\n{if has('torch')}Your torch leans against your pack, ready.{else}The cavern mouth is very dark, and you have no light.{end}\n\nYou have [yellow]{gold} gold[/], [red]{health} health[/], luck [cyan]{luck}[/]."
     },
     "searched_camp": {
       "title": "The Camp",
@@ -281,13 +281,12 @@
           ]
         },
         {
-          "text": "Fight the troll (your 1d20 + luck vs its 1d20 + 4)",
+          "text": "Fight the troll (opposed roll: 1d20 + luck vs the troll's 1d20 + 4)",
           "if": "not troll_defeated",
           "do": [
-            "roll your_attack = 1d20 + luck",
-            "roll troll_attack = 1d20 + 4",
+            "contest fight = 1d20 + luck vs troll",
             {
-              "if": "your_attack >= troll_attack",
+              "if": "fight > 0",
               "do": [
                 "say You duck under its club and shove it into the chasm!",
                 "set troll_defeated = true",
@@ -295,10 +294,18 @@
                 "set score = score + 15"
               ],
               "else": [
-                "roll troll_damage = 1d4",
-                "say The club catches your ribs. ([red]-{troll_damage} health[/])",
-                "set health = health - troll_damage",
-                "sfx hit.wav"
+                {
+                  "if": "fight == 0",
+                  "do": [
+                    "say You lock arms, strain... and both stumble apart, winded."
+                  ],
+                  "else": [
+                    "roll troll_damage = 1d4",
+                    "say The club catches your ribs. ([red]-{troll_damage} health[/])",
+                    "set health = health - troll_damage",
+                    "sfx hit.wav"
+                  ]
+                }
               ]
             }
           ]
@@ -454,5 +461,35 @@
         }
       }
     }
+  },
+  "npcs": {
+    "troll": {
+      "name": "Troll",
+      "roll": "1d20 + 4"
+    }
+  },
+  "tables": {
+    "camp_loot": [
+      {
+        "weight": 3,
+        "do": [
+          "say You dig up two [yellow]gold coins[/]!",
+          "give coin 2"
+        ]
+      },
+      {
+        "weight": 2,
+        "do": [
+          "say You find a dusty [green]healing potion[/]!",
+          "give potion"
+        ]
+      },
+      {
+        "weight": 1,
+        "do": [
+          "say Just ash and old chicken bones. Typical."
+        ]
+      }
+    ]
   }
 }

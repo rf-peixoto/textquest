@@ -21,6 +21,38 @@ import shutil
 import sys
 import time
 
+# On Windows, ANSI escapes need virtual-terminal mode enabled explicitly
+if os.name == "nt":  # pragma: no cover
+    try:
+        import ctypes
+        _k32 = ctypes.windll.kernel32
+        _k32.SetConsoleMode(_k32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
+
+
+def _unicode_ok() -> bool:
+    enc = getattr(sys.stdout, "encoding", "") or "ascii"
+    try:
+        "🎲🏆•─═▸✓⚠".encode(enc)
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
+
+
+# Symbols with ASCII fallbacks for terminals that can't render unicode
+SYM = {
+    "dice": "🎲", "trophy": "🏆", "lock": "🔒", "dot": "•", "arrow": "▸",
+    "check": "✓", "cross": "✗", "warn": "⚠", "rule": "─", "rule2": "═",
+    "tree_last": "└─▶ ", "tree_mid": "├─▶ ", "tree_pipe": "│   ",
+    "tree_arrow": "─▶", "more": "…", "to": "→",
+} if _unicode_ok() else {
+    "dice": "(d)", "trophy": "(*)", "lock": "(x)", "dot": "*", "arrow": ">",
+    "check": "+", "cross": "x", "warn": "!", "rule": "-", "rule2": "=",
+    "tree_last": "`-> ", "tree_mid": "|-> ", "tree_pipe": "|   ",
+    "tree_arrow": "->", "more": "...", "to": "->",
+}
+
 RESET = "\033[0m"
 
 STYLES = {
@@ -192,7 +224,8 @@ class Terminal:
         else:
             print(rendered)
 
-    def rule(self, char: str = "─", style: str = "dim") -> None:
+    def rule(self, char: str | None = None, style: str = "dim") -> None:
+        char = char or SYM["rule"]
         self.echo(f"[{style}]{char * self.width}[/]", wrap=False)
 
     def title(self, text: str) -> None:

@@ -10,13 +10,21 @@ from __future__ import annotations
 import json
 import re
 
+from dsl import _DICE_RE, check_expression
+from ui import SYM
+
 _GOTO_RE = re.compile(r'"goto ([A-Za-z0-9_]+)"')
-_RANDOM_GOTO_RE = re.compile(r'"random_goto ([A-Za-z0-9_ ]+)"')
+_RANDOM_GOTO_RE = re.compile(r'"random_goto ([A-Za-z0-9_* ]+)"')
 _GIVE_TAKE_RE = re.compile(r'"(?:give|take) ([A-Za-z0-9_]+)')
 _EQUIP_RE = re.compile(r'"(?:equip|unequip) ([A-Za-z0-9_]+)"')
 _UNLOCK_RE = re.compile(r'"unlock ([A-Za-z0-9_]+)"')
 _SHOP_FX_RE = re.compile(r'"shop ([A-Za-z0-9_]+)"')
 _DLG_FX_RE = re.compile(r'"dialogue ([A-Za-z0-9_]+)"')
+_CALL_RE = re.compile(r'"call ([A-Za-z0-9_]+)"')
+_DRAW_RE = re.compile(r'"draw ([A-Za-z0-9_]+)"')
+_SET_RE = re.compile(r'"(?:set|roll|ask) ([A-Za-z0-9_]+) ?=')
+_CONTEST_RE = re.compile(r'"contest ([A-Za-z0-9_]+) ?= ?(.+?) vs ([^"]+)"')
+_TEXT_IF_RE = re.compile(r"\{if ([^{}]+?)\}")
 
 
 def _effect_refs(obj) -> dict[str, set[str]]:
@@ -24,7 +32,7 @@ def _effect_refs(obj) -> dict[str, set[str]]:
     blob = json.dumps(obj)
     random_targets = set()
     for group in _RANDOM_GOTO_RE.findall(blob):
-        random_targets |= set(group.split())
+        random_targets |= {t.partition("*")[0] for t in group.split()}
     return {
         "goto": set(_GOTO_RE.findall(blob)) | random_targets,
         "items": set(_GIVE_TAKE_RE.findall(blob))
@@ -32,6 +40,8 @@ def _effect_refs(obj) -> dict[str, set[str]]:
         "achievements": set(_UNLOCK_RE.findall(blob)),
         "shops": set(_SHOP_FX_RE.findall(blob)),
         "dialogues": set(_DLG_FX_RE.findall(blob)),
+        "macros": set(_CALL_RE.findall(blob)),
+        "tables": set(_DRAW_RE.findall(blob)),
     }
 
 
@@ -63,6 +73,60 @@ def reachable_scenes(game: dict) -> set[str]:
                 seen.add(target)
                 frontier.append(target)
     return seen
+
+
+def _known_variables(game: dict) -> set[str]:
+    """Initial variables plus everything ever assigned by set/roll/ask/
+    contest — the set a condition may legally reference."""
+    blob = json.dumps(game)
+    known = set(game.get("variables", {}))
+    known |= set(_SET_RE.findall(blob))
+    for name, _you, _them in _CONTEST_RE.findall(blob):
+        known |= {name, f"{name}_you", f"{name}_them"}
+    return known
+
+
+def _iter_expressions(game: dict):
+    """Yield (where, expression) for every condition and value expression
+    in the game, so the validator can check them statically."""
+
+    def conds(obj, where):
+        """Recursively find 'if' keys and set/roll effect expressions."""
+        if isinstance(obj, dict):
+            if isinstance(obj.get("if"), str):
+                yield where, obj["if"]
+            for key, value in obj.items():
+                yield from conds(value, where)
+        elif isinstance(obj, list):
+            for value in obj:
+                yield from conds(value, where)
+        elif isinstance(obj, str):
+            stripped = obj.strip()
+            # dice tokens (1d20) aren't Python syntax — neutralize them
+            # before static checking, keeping the variable parts intact
+            def dicefree(expr):
+                return _DICE_RE.sub("1", expr)
+            for prefix in ("set ", "roll "):
+                if stripped.startswith(prefix) and "=" in stripped:
+                    yield where, dicefree(stripped.split("=", 1)[1].strip())
+            if stripped.startswith("contest ") and " vs " in stripped:
+                body = stripped[len("contest "):]
+                left, _, right = body.partition(" vs ")
+                if "=" in left:
+                    yield where, dicefree(left.split("=", 1)[1].strip())
+                right = right.strip()
+                if right not in game.get("npcs", {}):
+                    yield where, dicefree(right)
+            # inline {if ...} blocks inside prose and say effects
+            for m in _TEXT_IF_RE.finditer(obj):
+                yield where, m.group(1)
+
+    for section in ("scenes", "shops", "dialogues", "achievements",
+                    "macros", "tables", "npcs"):
+        for key, value in game.get(section, {}).items():
+            yield from conds(value, f"{section[:-1]} '{key}'")
+    for i, trig in enumerate(game.get("triggers", [])):
+        yield from conds(trig, f"trigger '{trig.get('id', i)}'")
 
 
 def validate_game(game: dict) -> tuple[list[str], list[str]]:
@@ -153,6 +217,34 @@ def validate_game(game: dict) -> tuple[list[str], list[str]]:
             warnings.append(f"item '{item_id}' has modifiers but no slot — "
                             f"it can never be equipped")
 
+    # -- macros / tables / npcs ----------------------------------------- #
+    macros = game.get("macros", {})
+    tables = game.get("tables", {})
+    npcs = game.get("npcs", {})
+    all_refs = _effect_refs(game)
+    for m in all_refs["macros"]:
+        if m not in macros:
+            errors.append(f"effect 'call {m}' -> unknown macro")
+    for t in all_refs["tables"]:
+        if t not in tables:
+            errors.append(f"effect 'draw {t}' -> unknown table")
+
+    # -- expressions ------------------------------------------------------#
+    known = _known_variables(game)
+    seen_expr = set()
+    for where, expr in _iter_expressions(game):
+        if (where, expr) in seen_expr:
+            continue
+        seen_expr.add((where, expr))
+        problem = check_expression(expr, known)
+        if problem:
+            errors.append(f"{where}: expression '{expr}' — {problem}")
+    for npc_id, npc in npcs.items():
+        spec = npc.get("roll", "")
+        problem = check_expression(_DICE_RE.sub("1", spec) or "1", known)
+        if problem:
+            errors.append(f"npc '{npc_id}': roll '{spec}' — {problem}")
+
     # -- reachability ----------------------------------------------------#
     reachable = reachable_scenes(game)
     for scene_id in scenes:
@@ -185,18 +277,19 @@ def render_map(game: dict) -> str:
         return scene_id + (f"  [{', '.join(marks)}]" if marks else "")
 
     def walk(scene_id: str, prefix: str, is_last: bool, is_root: bool):
-        connector = "" if is_root else ("└─▶ " if is_last else "├─▶ ")
+        connector = "" if is_root else (SYM["tree_last"] if is_last
+                                        else SYM["tree_mid"])
         if scene_id not in scenes:
             lines.append(f"{prefix}{connector}{scene_id}  [MISSING!]")
             return
         if scene_id in seen:
-            lines.append(f"{prefix}{connector}{scene_id}  (…)")
+            lines.append(f"{prefix}{connector}{scene_id}  ({SYM['more']})")
             return
         seen.add(scene_id)
         lines.append(f"{prefix}{connector}{label(scene_id)}")
         children = sorted(scene_targets(game, scene_id))
         child_prefix = prefix + ("" if is_root else
-                                 ("    " if is_last else "│   "))
+                                 ("    " if is_last else SYM["tree_pipe"]))
         for i, child in enumerate(children):
             walk(child, child_prefix, i == len(children) - 1, False)
 
@@ -207,7 +300,8 @@ def render_map(game: dict) -> str:
         | _effect_refs(game.get("triggers", []))["goto"])
     drawn_extra = [t for t in trigger_targets if t not in seen]
     for t in drawn_extra:
-        lines.append(f"(trigger) ─▶ {label(t) if t in scenes else t + '  [MISSING!]'}")
+        lines.append(f"(trigger) {SYM['tree_arrow']} "
+                     f"{label(t) if t in scenes else t + '  [MISSING!]'}")
         seen.add(t)
     unreachable = [s for s in scenes if s not in reachable_scenes(game)]
     if unreachable:
