@@ -1,0 +1,1246 @@
+{
+  "meta": {
+    "title": "The Ashen Crown",
+    "author": "textquest showcase",
+    "start": "awakening",
+    "clear_screen": true,
+    "typewriter_cps": 0,
+    "stats": [
+      "health",
+      "gold",
+      "might",
+      "cunning",
+      "lore",
+      "renown",
+      "supplies"
+    ]
+  },
+  "variables": {
+    "name": "stranger",
+    "health": 12,
+    "gold": 10,
+    "might": 0,
+    "cunning": 0,
+    "lore": 0,
+    "renown": 0,
+    "supplies": 2,
+    "wager": 0,
+    "dice_won": 0,
+    "wolf_slain": false,
+    "chief_dealt": false,
+    "chief_spared": false,
+    "king_defeated": false,
+    "knows_ritual": false,
+    "heard_wraith": false,
+    "heard_hermit": false,
+    "wraith_banished": false
+  },
+  "items": {
+    "rusty_sword": {
+      "name": "Rusty Sword",
+      "description": "Older than you. Still sharp enough.",
+      "slot": "hand",
+      "modifiers": {
+        "might": 1
+      }
+    },
+    "steel_sword": {
+      "name": "Steel Sword",
+      "description": "Emberhollow's finest. Which isn't saying much.",
+      "slot": "hand",
+      "modifiers": {
+        "might": 2
+      }
+    },
+    "oak_shield": {
+      "name": "Oak Shield",
+      "description": "Round, dented, dependable.",
+      "slot": "off_hand",
+      "modifiers": {
+        "might": 1
+      }
+    },
+    "shadow_cloak": {
+      "name": "Shadow Cloak",
+      "description": "Grey as doubt. Hems that drink the light.",
+      "slot": "body",
+      "modifiers": {
+        "cunning": 2
+      }
+    },
+    "scholars_ring": {
+      "name": "Scholar's Ring",
+      "description": "Engraved with a sentence no one finishes.",
+      "slot": "trinket",
+      "modifiers": {
+        "lore": 1
+      }
+    },
+    "torch": {
+      "name": "Torch",
+      "description": "The barrow is darker than night. You'll want this."
+    },
+    "healing_draught": {
+      "name": "Healing Draught",
+      "description": "Bitter, warm, and worth it. Restores 2d4 health."
+    },
+    "herbs": {
+      "name": "Greycap Herbs",
+      "description": "Ash-pale mushrooms. The hermit prizes these."
+    },
+    "wolf_pelt": {
+      "name": "Wolf Pelt",
+      "description": "Thick winter fur. The blacksmith pays well for these."
+    },
+    "warding_charm": {
+      "name": "Warding Charm",
+      "description": "Bone and silver wire. The dead respect old debts."
+    },
+    "barrow_key": {
+      "name": "Barrow Key",
+      "description": "Black iron, cold in every season."
+    },
+    "ashen_crown": {
+      "name": "The Ashen Crown",
+      "description": "It is not heavy. That is the worst part."
+    }
+  },
+  "macros": {
+    "rest": [
+      "roll healed = 2d4",
+      "set health = min(12, health + healed)",
+      "set supplies = supplies - 1",
+      "say You eat, sleep badly, and wake stiff but stronger. Health: [red]{health}/12[/]. Supplies left: {supplies}."
+    ],
+    "wound": [
+      "roll pain = 1d4",
+      "set health = health - pain",
+      "say [red]You take {pain} damage.[/] Health: {health}/12."
+    ],
+    "drink_draught": [
+      "take healing_draught",
+      "roll healed = 2d4",
+      "set health = min(12, health + healed)",
+      "sfx gulp.wav",
+      "say The draught burns going down, then soothes. Health: [red]{health}/12[/]."
+    ]
+  },
+  "tables": {
+    "forage": [
+      {
+        "weight": 3,
+        "do": [
+          "say Under a rotten log: [green]greycap herbs[/]!",
+          "give herbs"
+        ]
+      },
+      {
+        "weight": 2,
+        "do": [
+          "roll find = 1d6",
+          "say A traveler's purse, half-buried. [yellow]+{find} gold.[/]",
+          "set gold = gold + find"
+        ]
+      },
+      {
+        "weight": 2,
+        "do": [
+          "say Burrs, mud, and a very indignant squirrel. Nothing useful."
+        ]
+      },
+      {
+        "weight": 1,
+        "if": "not wolf_slain",
+        "do": [
+          "say A low growl rolls out of the bracken behind you...",
+          "goto wolf_den"
+        ]
+      }
+    ],
+    "road_events": [
+      {
+        "weight": 4,
+        "do": [
+          "say The road is quiet. Too quiet, probably, but quiet."
+        ]
+      },
+      {
+        "weight": 2,
+        "do": [
+          "say A tinker's cart rattles past. She tosses you a free sample with a wink: [green]a healing draught[/].",
+          "give healing_draught"
+        ]
+      },
+      {
+        "weight": 2,
+        "if": "not chief_dealt",
+        "do": [
+          "say Arrows thud into the dirt at your feet. [red]Ambush![/]",
+          "goto bandit_ambush"
+        ]
+      }
+    ],
+    "well_wishes": [
+      {
+        "weight": 3,
+        "do": [
+          "roll find = 1d6",
+          "say Your copper splashes. Moments later a bucket creaks up on its own, holding [yellow]{find} gold[/]. The well keeps change.",
+          "set gold = gold + find"
+        ]
+      },
+      {
+        "weight": 2,
+        "do": [
+          "say The well whispers back: [italic]\"The dead king's fire went out. His want didn't.\"[/] You feel slightly wiser.",
+          "set lore = lore + 1"
+        ]
+      },
+      {
+        "weight": 1,
+        "do": [
+          "say Nothing. Somewhere down there, your coin lands on a heap of other people's hopes."
+        ]
+      }
+    ]
+  },
+  "npcs": {
+    "wolf": {
+      "name": "Winter Wolf",
+      "roll": "1d20 + 3"
+    },
+    "bandit": {
+      "name": "Road Bandit",
+      "roll": "1d20 + 2"
+    },
+    "bandit_chief": {
+      "name": "Bandit Chief",
+      "roll": "1d20 + 5"
+    },
+    "wraith": {
+      "name": "Barrow Wraith",
+      "roll": "1d20 + 7"
+    },
+    "crown_king": {
+      "name": "The Crowned King",
+      "roll": "1d20 + 9"
+    },
+    "innkeep_dice": {
+      "name": "Innkeeper's Dice",
+      "roll": "2d6"
+    }
+  },
+  "achievements": {
+    "first_blood": {
+      "name": "First Blood",
+      "description": "Slay the winter wolf.",
+      "if": "wolf_slain",
+      "reward": [
+        "set renown = renown + 1"
+      ]
+    },
+    "pack_hunter": {
+      "name": "Pack Hunter",
+      "description": "Carry three wolf pelts at once.",
+      "if": "count('wolf_pelt') >= 3"
+    },
+    "silver_tongue": {
+      "name": "Silver Tongue",
+      "description": "Settle the bandit problem without drawing steel.",
+      "if": "chief_spared",
+      "reward": [
+        "set renown = renown + 1"
+      ]
+    },
+    "lorekeeper": {
+      "name": "Lorekeeper",
+      "description": "Learn the Rite of Ashes.",
+      "if": "knows_ritual"
+    },
+    "high_roller": {
+      "name": "High Roller",
+      "description": "Win the innkeeper's dice game three times.",
+      "if": "dice_won >= 3"
+    },
+    "old_debts": {
+      "name": "Old Debts",
+      "description": "Send the barrow wraith to rest without a fight.",
+      "if": "wraith_banished"
+    },
+    "untouchable": {
+      "name": "Untouchable",
+      "description": "Stand before the Crowned King without a scratch.",
+      "if": "visited('crown_chamber') and health >= 12"
+    },
+    "kingslayer": {
+      "name": "Kingslayer",
+      "description": "Defeat the Crowned King.",
+      "if": "king_defeated",
+      "reward": [
+        "set renown = renown + 2"
+      ]
+    },
+    "generous": {
+      "name": "The Open Hand",
+      "description": "???",
+      "secret": true
+    },
+    "ash_and_dust": {
+      "name": "Ash and Dust",
+      "description": "Give the crown the ending it was owed.",
+      "if": "visited('ending_ashes')"
+    },
+    "long_live": {
+      "name": "Long Live the King",
+      "description": "???",
+      "secret": true,
+      "if": "visited('ending_crowned')"
+    }
+  },
+  "triggers": [
+    {
+      "id": "death_check",
+      "if": "health <= 0",
+      "once": false,
+      "goto": "death"
+    }
+  ],
+  "scenes": {
+    "awakening": {
+      "title": "The Notice",
+      "art": "        .-=========-.\n        \\'-=======-'/\n        _|   .=.   |_\n       ((|  {{1}}  |))\n        \\|   /|\\   |/\n         \\__ '`' __/\n           _`) (`_\n         _/_______\\_",
+      "text": "The notice is nailed to a gallows, which tells you something about Emberhollow's optimism:\n\n[italic]\"The old king was burned with his crown, yet his barrow lights at night and his roads empty by day. WANTED: someone expendable. Reward: generous. — The Village Council\"[/]\n\nYou've been called worse than expendable.",
+      "music": "title_theme.ogg",
+      "on_first_enter": [
+        "ask name = What name do you go by, traveler?",
+        "say [dim]\"Well then, {name},\" you mutter, pulling your hood up. \"Let's go be expendable.\"[/]"
+      ],
+      "choices": [
+        {
+          "text": "I am a [red]sellsword[/] — problems fear my arm (might 3, cunning 1)",
+          "do": [
+            "set might = 3",
+            "set cunning = 1",
+            "give rusty_sword",
+            "equip rusty_sword",
+            "say [dim]Steel settles into your grip like an old argument.[/]"
+          ],
+          "goto": "emberhollow"
+        },
+        {
+          "text": "I am a [cyan]thief[/] — problems never see me (cunning 3, might 1)",
+          "do": [
+            "set cunning = 3",
+            "set might = 1",
+            "give shadow_cloak",
+            "equip shadow_cloak",
+            "say [dim]The cloak settles over your shoulders and your outline... blurs.[/]"
+          ],
+          "goto": "emberhollow"
+        },
+        {
+          "text": "I am a [magenta]scholar[/] — problems are merely unread pages (lore 3, cunning 1)",
+          "do": [
+            "set lore = 3",
+            "set cunning = 1",
+            "give scholars_ring",
+            "equip scholars_ring",
+            "say [dim]The ring hums faintly, like a library holding its breath.[/]"
+          ],
+          "goto": "emberhollow"
+        }
+      ]
+    },
+    "emberhollow": {
+      "title": "Emberhollow",
+      "music": "village_theme.ogg",
+      "text": "Emberhollow huddles under the Barrowfell hills like a dog that knows it's about to be kicked. Smoke, mud, shuttered windows — and every doorway watching you, the new expendable.\n\nThe [cyan]Ashen Flagon[/] inn glows warmest. The [cyan]blacksmith[/] rings steadily. The [cyan]apothecary's[/] window is full of jars you'd rather not name. A beggar sits by the [cyan]old well[/].",
+      "revisit_text": "Emberhollow again. {if renown >= 3}People nod as you pass now — word of your deeds is getting around.{else}{if renown >= 1}A few villagers nod warily. Word travels.{else}Nobody meets your eye. Expendables aren't worth knowing.{end}{end}\n\n{if has('ashen_crown')}[bold magenta]The crown murmurs in your pack, and every shadow in the village leans toward you.[/]{end}\n\nInn, blacksmith, apothecary, well — and the gates.",
+      "choices": [
+        {
+          "text": "Step into the Ashen Flagon",
+          "dialogue": "innkeeper"
+        },
+        {
+          "text": "Visit the blacksmith",
+          "shop": "blacksmith"
+        },
+        {
+          "text": "Browse the apothecary",
+          "shop": "apothecary"
+        },
+        {
+          "text": "Give the beggar five gold",
+          "id": "ch_beggar",
+          "once": true,
+          "if": "gold >= 5",
+          "do": [
+            "set gold = gold - 5",
+            "set renown = renown + 1",
+            "unlock generous",
+            "say He looks up, and for one strange moment his eyes are clear as winter. [italic]\"The dead remember kindness, {name}. Sooner than you'd think.\"[/]"
+          ]
+        },
+        {
+          "text": "Toss a coin down the old well",
+          "if": "gold >= 1",
+          "do": [
+            "set gold = gold - 1",
+            "draw well_wishes"
+          ]
+        },
+        {
+          "text": "Drink a healing draught",
+          "if": "has('healing_draught') and health < 12",
+          "do": [
+            "call drink_draught"
+          ]
+        },
+        {
+          "text": "Take the gates out of town",
+          "goto": "crossroads"
+        }
+      ]
+    },
+    "crossroads": {
+      "title": "The Crossroads",
+      "text": "Three ways from the leaning signpost:\n\nWest, the [green]Greywood[/] — herbs, wolves, and a hermit who talks to neither.\nEast, the [yellow]Old Road[/] — the merchant route the bandits now tax at arrowpoint.\nNorth, the [magenta]Barrowfell[/] — where the dead king sleeps badly.\n\n{if supplies >= 1}Your pack holds {supplies} supplies — enough to camp here if needed.{else}[dim]Your pack is empty. No camping without supplies.[/]{end}",
+      "choices": [
+        {
+          "text": "West, into the Greywood",
+          "goto": "forest_edge"
+        },
+        {
+          "text": "East, down the Old Road",
+          "goto": "old_road"
+        },
+        {
+          "text": "North, up to the Barrowfell",
+          "goto": "barrow_gate"
+        },
+        {
+          "text": "Make camp and rest (1 supply, heals 2d4)",
+          "if": "supplies >= 1 and health < 12",
+          "do": [
+            "call rest"
+          ]
+        },
+        {
+          "text": "Drink a healing draught",
+          "if": "has('healing_draught') and health < 12",
+          "do": [
+            "call drink_draught"
+          ]
+        },
+        {
+          "text": "Back to Emberhollow",
+          "goto": "emberhollow"
+        }
+      ]
+    },
+    "forest_edge": {
+      "title": "The Greywood",
+      "music": "forest_theme.ogg",
+      "text": "Grey trunks, grey moss, grey light. The Greywood doesn't rustle so much as [italic]mutter[/].\n\nMushroom rings dot the loam, and two paths wander deeper — one toward a thread of chimney smoke, one toward a smell of musk and old bones.",
+      "revisit_text": "The Greywood mutters on. {if wolf_slain}With the big wolf dead, the underbrush feels almost peaceful.{else}Something big still moves out there, keeping pace with you.{end}",
+      "choices": [
+        {
+          "text": "Forage among the mushroom rings",
+          "do": [
+            "draw forage"
+          ]
+        },
+        {
+          "text": "Wander deeper along the game trails",
+          "do": [
+            "random_goto clearing*2 wolf_den"
+          ]
+        },
+        {
+          "text": "Back to the crossroads",
+          "goto": "crossroads"
+        }
+      ]
+    },
+    "clearing": {
+      "title": "The Hermit's Clearing",
+      "text": "A crooked hut on a stump-studded clearing, its chimney smoking in a shade of blue smoke has no business being. Wind chimes made of finger bones ting gently.\n\nBy the door, a bed of [green]greycap herbs[/] grows in neat, impossible rows.",
+      "choices": [
+        {
+          "text": "Knock on the hermit's door",
+          "dialogue": "hermit"
+        },
+        {
+          "text": "Pocket some of the hermit's herbs",
+          "id": "ch_steal_herbs",
+          "once": true,
+          "do": [
+            "roll sneak = 1d20 + cunning",
+            {
+              "if": "sneak >= 12",
+              "do": [
+                "say You palm a handful of greycaps without the chimes so much as tinkling.",
+                "give herbs"
+              ],
+              "else": [
+                "say The bone chimes SHRIEK. From inside: [italic]\"THOSE COST EXTRA, CHILD.\"[/] You leave the herbs and your dignity.",
+                "set renown = renown - 1"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Back toward the forest edge",
+          "goto": "forest_edge"
+        }
+      ]
+    },
+    "wolf_den": {
+      "title": "The Wolf Den",
+      "text": "Bones ring a hollow under a fallen oak — deer, sheep, and one boot. A [bold]winter wolf[/] the size of a pony rises from the shadows, breath steaming.\n\n{if equipped('shadow_cloak')}It sniffs, puzzled. Your cloak makes you hard to fix eyes on.{end}",
+      "revisit_text": "{if wolf_slain}The den is silent now. Smaller wolves have already begun to squabble over the old one's throne.{else}The winter wolf is still here, and still enormous.{end}",
+      "choices": [
+        {
+          "text": "Fight the winter wolf (your 1d20 + might vs its 1d20 + 3)",
+          "if": "not wolf_slain",
+          "do": [
+            "contest hunt = 1d20 + might vs wolf",
+            {
+              "if": "hunt > 0",
+              "do": [
+                "say Your blade finds the throat mid-leap. The forest exhales.",
+                "set wolf_slain = true",
+                "give wolf_pelt",
+                "sfx wolf_howl.wav"
+              ],
+              "else": [
+                {
+                  "if": "hunt == 0",
+                  "do": [
+                    "say You and the wolf circle, feint, and break apart — both breathing hard, neither bleeding. Yet."
+                  ],
+                  "else": [
+                    "say Teeth rake your shoulder as you stumble back.",
+                    "call wound"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Track the younger wolves for pelts",
+          "if": "wolf_slain",
+          "do": [
+            "roll track = 1d20 + cunning",
+            {
+              "if": "track >= 13",
+              "do": [
+                "say A clean chase, a cleaner kill. Another pelt for the pile.",
+                "give wolf_pelt"
+              ],
+              "else": [
+                "say The young wolves are faster than their late king. One nips you on the way out.",
+                "call wound"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Back away from the den",
+          "goto": "forest_edge"
+        }
+      ]
+    },
+    "old_road": {
+      "title": "The Old Road",
+      "text": "Rutted, weed-cracked, and lined with the polite kind of warning: wheels of burnt carts, arranged where travelers can see them.\n\nSmoke rises ahead — the bandit camp squats in a toll-house they didn't build.",
+      "revisit_text": "{if chief_dealt}The Old Road breathes easier. A first brave merchant cart creaks past, and its driver actually waves.{else}The burnt cart-wheels haven't moved. Neither has the smoke ahead.{end}",
+      "on_enter": [
+        "draw road_events"
+      ],
+      "choices": [
+        {
+          "text": "Approach the bandit camp",
+          "goto": "bandit_camp"
+        },
+        {
+          "text": "Back to the crossroads",
+          "goto": "crossroads"
+        }
+      ]
+    },
+    "bandit_ambush": {
+      "title": "Ambush!",
+      "text": "Two road bandits melt out of the ditch, blades drawn, grins missing several teeth between them.",
+      "choices": [
+        {
+          "text": "Cut your way through (1d20 + might vs 1d20 + 2)",
+          "do": [
+            "contest brawl = 1d20 + might vs bandit",
+            {
+              "if": "brawl > 0",
+              "do": [
+                "roll find = 1d6",
+                "say They flee, dropping a purse in the panic. [yellow]+{find} gold.[/]",
+                "set gold = gold + find",
+                "goto old_road"
+              ],
+              "else": [
+                "say A cudgel catches your ribs before you drive them back.",
+                "call wound"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Vanish into the treeline (1d20 + cunning vs 12)",
+          "do": [
+            "roll slip = 1d20 + cunning",
+            {
+              "if": "slip >= 12",
+              "do": [
+                "say You're gone before their grins finish forming.",
+                "goto old_road"
+              ],
+              "else": [
+                "say A thrown knife clips you as you run.",
+                "call wound",
+                "goto old_road"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "bandit_camp": {
+      "title": "The Toll-House",
+      "text": "{if chief_dealt}The toll-house stands quiet. {if chief_spared}The bandits are packing to leave, and their chief gives you a grudging, complicated nod.{else}Crows have claimed the palisade. Nobody collects tolls anymore.{end}{else}Firelight, laughter with edges, and a dozen armed silhouettes. On a chair of stacked cargo sits the [bold]Bandit Chief[/], flipping a black iron key across her knuckles.\n\nThat would be the [cyan]barrow key[/] the innkeeper mentioned — the one the council lost along with its last three expendables.{end}",
+      "choices": [
+        {
+          "text": "Walk in and talk to the chief",
+          "if": "not chief_dealt",
+          "dialogue": "chief_parley"
+        },
+        {
+          "text": "Search the toll-house strongbox",
+          "id": "ch_strongbox",
+          "once": true,
+          "if": "chief_dealt",
+          "do": [
+            "roll find = 2d6",
+            "say Under false coins and real cobwebs: [yellow]{find} gold[/] and a healing draught.",
+            "set gold = gold + find",
+            "give healing_draught"
+          ]
+        },
+        {
+          "text": "Back to the Old Road",
+          "goto": "old_road"
+        }
+      ]
+    },
+    "bandit_fight": {
+      "title": "Steel in the Toll-House",
+      "text": "Tables overturn. The bandits form a ring — this is between you and the chief now, by whatever passes for honor here.\n\nShe draws two long knives and smiles like a bad omen.",
+      "choices": [
+        {
+          "text": "Fight the chief (your 1d20 + might vs her 1d20 + 5)",
+          "do": [
+            "contest duel = 1d20 + might vs bandit_chief",
+            {
+              "if": "duel > 0",
+              "do": [
+                "say Her knives ring off your guard once, twice — then she's down, laughing at the sky. [italic]\"Take the key, hero. This road's gone sour anyway.\"[/]",
+                "set chief_dealt = true",
+                "give barrow_key",
+                "set renown = renown + 1",
+                "goto bandit_camp"
+              ],
+              "else": [
+                "say She fights like rent is due. You reel back, bleeding.",
+                "call wound"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Retreat, bleeding pride",
+          "goto": "old_road"
+        }
+      ]
+    },
+    "barrow_gate": {
+      "title": "The Barrowfell Gate",
+      "text": "The hill splits into a doorway of black stone, older than the kingdom that borrowed it. An iron gate seals it, its lock shaped like a screaming mouth.\n\n{if heard_wraith}The innkeeper's warning circles your head: something walks between the gate and the crown, and steel alone won't settle it.{end}",
+      "choices": [
+        {
+          "text": "Unlock the gate with the barrow key",
+          "if": "has('barrow_key')",
+          "do": [
+            "say The key turns. The scream-lock swallows it whole and the gate grinds open.",
+            "sfx gate.wav"
+          ],
+          "goto": "barrow_dark",
+          "show_locked": true,
+          "locked_text": "the lock wants its black iron key"
+        },
+        {
+          "text": "Pick the ancient lock (1d20 + cunning vs 15)",
+          "if": "not has('barrow_key')",
+          "do": [
+            "roll pick = 1d20 + cunning",
+            {
+              "if": "pick >= 15",
+              "do": [
+                "say Old locks have old habits. Yours are worse. [green]Click.[/]",
+                "goto barrow_dark"
+              ],
+              "else": [
+                "say The lock BITES — a needle in the mechanism.",
+                "call wound"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Back to the crossroads",
+          "goto": "crossroads"
+        }
+      ]
+    },
+    "barrow_dark": {
+      "title": "The Descending Dark",
+      "text": "Stairs corkscrew down into a dark with [bold]texture[/] — it presses on your face like cloth.\n\n{if has('torch')}Your torch pushes it back a grudging armslength.{else}[red]You cannot see your own hands. Going deeper without light would be suicide.[/]{end}",
+      "on_first_enter": [
+        "roll trap = 1d20 + cunning",
+        {
+          "if": "trap < 10",
+          "do": [
+            "say A stair gives way — a scything blade of black iron whips from the wall!",
+            "call wound"
+          ],
+          "else": [
+            "say You catch the seam of a false stair just in time, and step long over a scythe-trap dusted with old, brown stains."
+          ]
+        }
+      ],
+      "choices": [
+        {
+          "text": "Descend into the barrow hall",
+          "if": "has('torch')",
+          "goto": "barrow_hall",
+          "show_locked": true,
+          "locked_text": "too dark — you need a torch"
+        },
+        {
+          "text": "Retreat to daylight",
+          "goto": "barrow_gate"
+        }
+      ]
+    },
+    "barrow_hall": {
+      "title": "The Hall of the Sleepless",
+      "music": "barrow_theme.ogg",
+      "text": "A vaulted hall of standing biers, each with its sleeping knight of dust. Between you and the far door, the air curdles into a shape — a [bold magenta]wraith[/] in funeral finery, its face a smear of grief.\n\n[italic]\"The king dreams,\"[/] it breathes. [italic]\"None may wake him.\"[/]",
+      "revisit_text": "{if wraith_banished or visited('crown_chamber')}The hall stands open, its guardian gone to whatever rest it was owed. The dust knights sleep on.{else}The wraith re-forms between the biers, patient as grief itself.{end}",
+      "choices": [
+        {
+          "text": "Raise the warding charm",
+          "if": "has('warding_charm') and not wraith_banished and not visited('crown_chamber')",
+          "do": [
+            "take warding_charm",
+            "say You lift the bone-and-silver charm. The wraith stares... then [bold]bows[/], grief unknotting from its face like smoke. [italic]\"An old debt, honored. Pass, {name}.\"[/] It pours itself into the nearest bier and is gone.",
+            "set wraith_banished = true",
+            "pause"
+          ]
+        },
+        {
+          "text": "Fight the wraith (your 1d20 + might vs its 1d20 + 7)",
+          "if": "not wraith_banished and not visited('crown_chamber')",
+          "do": [
+            "contest shade = 1d20 + might vs wraith",
+            {
+              "if": "shade > 0",
+              "do": [
+                "say Your blade passes through cold silk and something tears that was never cloth. The wraith unravels with a sound like a sigh.",
+                "set wraith_banished = true"
+              ],
+              "else": [
+                "say Its touch is a winter ten years long.",
+                "call wound",
+                "call wound"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Pass through to the crown chamber",
+          "if": "wraith_banished or visited('crown_chamber')",
+          "goto": "crown_chamber",
+          "show_locked": true,
+          "locked_text": "the wraith bars the way"
+        },
+        {
+          "text": "Retreat up the stairs",
+          "goto": "barrow_dark"
+        }
+      ]
+    },
+    "crown_chamber": {
+      "title": "The Crown Chamber",
+      "art": "        .-=========-.\n        \\'-=======-'/\n        _|   .=.   |_\n       ((|  {{1}}  |))\n        \\|   /|\\   |/\n         \\__ '`' __/",
+      "text": "The chamber is a bowl of black glass, and at its center, on a throne of fused ash, sits the [bold]dead king[/] — and on his brow, unburnt, unbothered, the [bold magenta]Ashen Crown[/].\n\n{if king_defeated}The king's husk lies still at the throne's foot. The crown waits on the glass, patient as ever.{else}The husk stirs. Joints crack like green wood. He rises, and the crown [bold]brightens[/].{end}",
+      "on_first_enter": [
+        "say [italic]The crown speaks without sound: \"EXPENDABLE. YES. THEY ALWAYS SEND ME EXPENDABLES. COME. BE KEPT.\"[/]",
+        "pause"
+      ],
+      "choices": [
+        {
+          "text": "Fight the Crowned King (1d20 + might + renown vs his 1d20 + 9)",
+          "if": "not king_defeated",
+          "do": [
+            "say [dim]Your renown steels you — every good deed a plate of armor. (+{renown} to your roll)[/]",
+            "contest crown_fight = 1d20 + might + renown vs crown_king",
+            {
+              "if": "crown_fight > 0",
+              "do": [
+                "say The husk shatters like a burnt log kicked apart. The crown rolls free across the glass, ringing, [bold]furious[/].",
+                "set king_defeated = true",
+                "sfx shatter.wav",
+                "pause"
+              ],
+              "else": [
+                "say The dead king's grip is a landslide in slow motion.",
+                "call wound",
+                "call wound"
+              ]
+            }
+          ]
+        },
+        {
+          "text": "Perform the Rite of Ashes",
+          "if": "king_defeated and knows_ritual",
+          "goto": "ending_ashes",
+          "show_locked": true,
+          "locked_text": "requires the fallen king AND the hermit's rite"
+        },
+        {
+          "text": "Take the crown and leave it unworn",
+          "if": "king_defeated and not has('ashen_crown')",
+          "do": [
+            "give ashen_crown",
+            "say It comes free with no resistance at all — which is exactly as reassuring as it sounds."
+          ]
+        },
+        {
+          "text": "Set the crown upon your own head",
+          "if": "king_defeated or has('ashen_crown')",
+          "goto": "ending_crowned"
+        },
+        {
+          "text": "Walk away from all of it",
+          "goto": "ending_flee"
+        }
+      ]
+    },
+    "ending_ashes": {
+      "title": "The Rite of Ashes",
+      "end": true,
+      "music": "ending_theme.ogg",
+      "text": "You speak the hermit's words backward, the way grief runs. The crown screams — sound this time, real sound — and then it is only ash, and the ash is only quiet.\n\nThe barrow lights go out. All of them. For good.\n\n{if chief_spared}On the road home, the bandit chief's people fall in beside you like an honor guard, because stories need witnesses.{end}\n{if wraith_banished and not king_defeated}{end}Emberhollow doesn't cheer — it's not that kind of town — but doors stand open as you pass, and that is louder.\n\n[bold bright_yellow]{name} the Expendable did not come back. {name} the Crownbreaker did.[/]\n\n[dim]Renown: {renown}   Health: {health}/12   Gold: {gold}[/]"
+    },
+    "ending_crowned": {
+      "title": "Coronation",
+      "end": true,
+      "text": "It is not heavy. That is the worst part.\n\nThe crown settles, and Emberhollow's lights below the hills look suddenly like [bold]yours[/] — the inn, the forge, the little well, all of it owed to you, all of it [italic]kept[/].\n\n{if renown >= 3}Somewhere under the crown's murmur, the person the village was learning to trust politely stops existing.{else}It's fine. Nobody down there ever met your eye anyway.{end}\n\nThe barrow gate grinds shut behind its new king.\n\n[bold magenta]Long live {name} the First. Long live {name} the Only.[/]"
+    },
+    "ending_flee": {
+      "title": "The Long Road",
+      "end": true,
+      "text": "Some jobs are finished. Some are just [italic]left[/].\n\nYou walk out of the Barrowfell with your health, most of your gold, and a story you'll tell wrong on purpose for the rest of your life.\n\n{if has('ashen_crown')}The crown rides in your pack, wrapped in three cloths and a prayer. Some nights it murmurs. You've started sleeping farther from your own bags — and one day, somewhere far from here, you'll have to decide all over again.{else}{if king_defeated}Behind you, a crown sits on black glass beside a broken husk, waiting — patient as ever — for the next expendable.{else}Behind you, the barrow lights burn on, and Emberhollow keeps paying its strange tithes.{end}{end}\n\n[bold]{name} lived. It's not nothing.[/]\n\n[dim]Renown: {renown}   Gold: {gold}[/]"
+    },
+    "death": {
+      "title": "Expendable",
+      "end": true,
+      "text": "The council's notice was honest, at least.\n\nThey nail a new one to the gallows within the week — same words, fresh nail — and the Barrowfell lights burn on, patient as debt.\n\n[dim]Here ended {name}, who was owed better. Renown: {renown}.[/]"
+    }
+  },
+  "shops": {
+    "blacksmith": {
+      "name": "Harrow & Daughter, Smiths",
+      "currency": "gold",
+      "greeting": "\"Buying, or just warming yourself at my forge? Either way, mind the sparks.\"",
+      "stock": [
+        {
+          "item": "steel_sword",
+          "price": 12,
+          "qty": 1,
+          "on_buy": [
+            "say [dim]\"Da's best blade,\" the smith says. \"Try not to die holding it — bad for word of mouth.\"[/]"
+          ]
+        },
+        {
+          "item": "oak_shield",
+          "price": 8,
+          "qty": 1
+        },
+        {
+          "item": "torch",
+          "price": 2,
+          "qty": 3
+        }
+      ],
+      "buys": {
+        "wolf_pelt": 5
+      }
+    },
+    "apothecary": {
+      "name": "The Crooked Jar",
+      "currency": "gold",
+      "greeting": "\"Welcome, welcome. Everything's fresher than it smells.\"",
+      "stock": [
+        {
+          "item": "healing_draught",
+          "price": 5,
+          "qty": 3
+        },
+        {
+          "item": "warding_charm",
+          "price": 10,
+          "qty": 1,
+          "if": "heard_wraith",
+          "on_buy": [
+            "say [dim]The apothecary lowers her voice: \"Bone and silver. The dead honor old debts — show it, don't swing it.\"[/]"
+          ]
+        }
+      ],
+      "buys": {
+        "herbs": 4
+      }
+    }
+  },
+  "dialogues": {
+    "innkeeper": {
+      "name": "Innkeeper Maddow",
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": "\"{name}, was it? Word's around. Sit — the stew's brown and the beer's wet, which is all I promise.\" He polishes a mug that will never be clean. \"Ask, drink, or gamble. In any order.\"",
+          "responses": [
+            {
+              "text": "\"Tell me about the Barrowfell.\"",
+              "goto": "barrow_rumor"
+            },
+            {
+              "text": "\"Anyone worth knowing outside the walls?\"",
+              "goto": "hermit_rumor"
+            },
+            {
+              "text": "\"Let's see those dice.\"",
+              "goto": "dice_game"
+            },
+            {
+              "text": "\"What's the story with the bandits?\" ",
+              "goto": "bandit_rumor"
+            },
+            {
+              "text": "(lore) \"Your inn's sign — the Ashen Flagon. Named for the crown?\"",
+              "if": "lore >= 3",
+              "goto": "scholar_talk"
+            },
+            {
+              "text": "\"Just passing through.\" (leave)",
+              "exit": true
+            }
+          ]
+        },
+        "barrow_rumor": {
+          "text": "His polishing hand stops. \"Three went up before you. Only sounds came back.\" He leans in. \"Between the gate and the crown something [bold]walks[/], and it isn't a thing you cut. The Crooked Jar keeps... arrangements... for the dead. Ask there, if your purse is braver than your sword.\"",
+          "do": [
+            "set heard_wraith = true"
+          ],
+          "responses": [
+            {
+              "text": "\"Noted. What else?\" (back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "hermit_rumor": {
+          "text": "\"Hermit in the Greywood. Talks to mushrooms, and worse — they answer. If anyone knows how to put burnt kings back in the ground [bold]properly[/], it's her. She trades in greycap herbs, not coin. And not manners.\"",
+          "do": [
+            "set heard_hermit = true"
+          ],
+          "responses": [
+            {
+              "text": "\"Herbs. Got it.\" (back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "bandit_rumor": {
+          "text": "\"Toll-house crew on the Old Road. Their chief's no butcher — she's a businesswoman with knives. And here's the sour part: she holds the [cyan]barrow key[/] the council lost with its last hire.\" He shrugs. \"Talk or fight. She respects both, in her way.\"",
+          "responses": [
+            {
+              "text": "\"Good to know.\" (back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "scholar_talk": {
+          "text": "He blinks — nobody's ever asked. \"Aye. Grandda served the old king. Said at the end His Majesty stopped sleeping — stood at windows all night whispering [italic]'mine'[/] at the fields. They burned the crown WITH him to be safe.\" A dry laugh. \"You can see how well that took. Have a drink on the house, scholar — one per lifetime.\"",
+          "do": [
+            "set lore = lore + 1",
+            "say [dim]Free ale and a primary source. (+1 lore)[/]"
+          ],
+          "responses": [
+            {
+              "text": "\"To your grandda.\" (back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "dice_game": {
+          "text": "He rattles a cup of dice older than the floorboards. \"Knuckle-and-Bones. Your 2d6 against mine, winner doubles the stake.\" {if dice_won >= 3}He eyes you sourly. \"You again. My dice have started flinching.\"{end}",
+          "responses": [
+            {
+              "text": "Place a wager",
+              "goto": "dice_wager",
+              "if": "gold >= 1"
+            },
+            {
+              "text": "\"Another time.\" (back)",
+              "goto": "hello"
+            }
+          ]
+        },
+        "dice_wager": {
+          "text": "\"Coin on the wood, friend.\" You have [yellow]{gold} gold[/].",
+          "do": [
+            "ask wager = How much do you wager?",
+            {
+              "if": "int(wager) >= 1 and int(wager) <= gold",
+              "do": [
+                "set wager = int(wager)",
+                "set gold = gold - wager",
+                "contest bones = 2d6 vs innkeep_dice",
+                {
+                  "if": "bones > 0",
+                  "do": [
+                    "set gold = gold + wager + wager",
+                    "set dice_won = dice_won + 1",
+                    "say [green]Your bones roll higher! +{wager} gold — you're at {gold}.[/]"
+                  ],
+                  "else": [
+                    {
+                      "if": "bones == 0",
+                      "do": [
+                        "set gold = gold + wager",
+                        "say A dead tie. He slides your stake back with visible relief."
+                      ],
+                      "else": [
+                        "say [red]His dice grin up at you. -{wager} gold — you're at {gold}.[/]"
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "else": [
+                "say He squints at your offer. \"Real coin you actually have, friend. House rule.\""
+              ]
+            }
+          ],
+          "responses": [
+            {
+              "text": "\"Again.\"",
+              "if": "gold >= 1"
+            },
+            {
+              "text": "\"Enough dice.\" (back)",
+              "goto": "hello"
+            }
+          ]
+        }
+      }
+    },
+    "hermit": {
+      "name": "The Greywood Hermit",
+      "start": "door",
+      "nodes": {
+        "door": {
+          "text": "The door opens before you knock. She is small, ancient, and looking at a point two inches behind your eyes. \"Expendable,\" she says, the way others say [italic]'rain again'[/]. \"You'll be wanting the Rite of Ashes. They always do, the ones who make it this far.\"",
+          "responses": [
+            {
+              "text": "\"The Rite of Ashes — what is it?\"",
+              "goto": "rite_what"
+            },
+            {
+              "text": "\"I brought greycap herbs.\"",
+              "if": "has('herbs') and not knows_ritual",
+              "goto": "rite_herbs"
+            },
+            {
+              "text": "(lore) \"Let me reason it out from first principles.\"",
+              "if": "lore >= 3 and not knows_ritual",
+              "goto": "rite_study"
+            },
+            {
+              "text": "\"Wrong hut. Sorry.\" (leave)",
+              "exit": true
+            }
+          ]
+        },
+        "rite_what": {
+          "text": "\"The crown was forged wanting and burnt wanting, and wanting is all that's left of the man inside it. The Rite gives the want somewhere to [bold]end[/].\" She holds out a palm like a dry leaf. \"I teach it for greycaps. Or to anyone clever enough to steal it out of my sentences — that's happened twice, and I respected it both times.\"",
+          "responses": [
+            {
+              "text": "(back)",
+              "goto": "door"
+            }
+          ]
+        },
+        "rite_herbs": {
+          "text": "She takes the greycaps, sniffs them, and nods once — highest praise. Then she teaches you: seven words said backward, the way grief runs. \"Say them over the crown when its wearer is down. Not before. It listens.\"",
+          "do": [
+            "take herbs",
+            "set knows_ritual = true",
+            "sfx chime.wav",
+            "say [bold magenta]You have learned the Rite of Ashes.[/]"
+          ],
+          "responses": [
+            {
+              "text": "\"Thank you, grandmother.\" (leave)",
+              "do": [
+                "set renown = renown + 1"
+              ],
+              "exit": true
+            }
+          ]
+        },
+        "rite_study": {
+          "text": "\"Oh, [italic]reason[/] it out?\" She grins with more teeth than expected. \"Then reason, scholar. What runs backward, ends what cannot end, and is said over kings?\" ",
+          "responses": [
+            {
+              "text": "Attempt it (roll 1d20 + lore vs 14)",
+              "do": [
+                "roll study = 1d20 + lore",
+                {
+                  "if": "study >= 14",
+                  "do": [
+                    "set knows_ritual = true",
+                    "say [bold magenta]\"Grief,\" you answer, \"spoken backward.\" Her grin widens: \"Third one ever. The words are these—\" You have learned the Rite of Ashes.[/]"
+                  ],
+                  "else": [
+                    "say \"Mm. A prayer? No, child. Come back with greycaps — or a better guess.\""
+                  ]
+                }
+              ]
+            },
+            {
+              "text": "(back)",
+              "goto": "door"
+            }
+          ]
+        }
+      }
+    },
+    "chief_parley": {
+      "name": "The Bandit Chief",
+      "start": "approach",
+      "nodes": {
+        "approach": {
+          "text": "She doesn't stand. The key keeps walking across her knuckles. \"The new expendable. You've got till this key stops moving to interest me, {name}.\"",
+          "responses": [
+            {
+              "text": "(cunning) \"The council's raising a militia. I'm your warning, not your enemy.\"",
+              "if": "cunning >= 3",
+              "goto": "bluff"
+            },
+            {
+              "text": "(might) \"Give me the key or I take it off whoever's still standing.\"",
+              "if": "might >= 3",
+              "goto": "threat"
+            },
+            {
+              "text": "\"Fifteen gold for the key. Clean and simple.\"",
+              "if": "gold >= 15",
+              "goto": "buy"
+            },
+            {
+              "text": "\"I don't talk to road trash.\" (draw steel)",
+              "do": [
+                "goto bandit_fight"
+              ],
+              "exit": true
+            },
+            {
+              "text": "Back away slowly",
+              "exit": true
+            }
+          ]
+        },
+        "bluff": {
+          "text": "The key stops. \"...A militia.\" You lay it on thick: numbers, pikes, a councilwoman with a grudge. All invented. Her jaw works. \"Sour road anyway,\" she mutters — and tosses you the key. \"We're gone by frost. Tell your militia they're heroes.\"",
+          "do": [
+            "give barrow_key",
+            "set chief_dealt = true",
+            "set chief_spared = true",
+            "say [dim]There is no militia. There was never a militia.[/]"
+          ],
+          "responses": [
+            {
+              "text": "\"They'll be thrilled.\" (leave)",
+              "exit": true
+            }
+          ]
+        },
+        "threat": {
+          "text": "She looks you over — the arm, the stance, the blade. Bandits are businesspeople; the math is quick. \"Hm.\" A test, then: she nods to her biggest man, who steps in cracking his knuckles. \"Convince Bruno, convince me.\"",
+          "responses": [
+            {
+              "text": "Convince Bruno (1d20 + might vs 1d20 + 2)",
+              "do": [
+                "contest bruno = 1d20 + might vs bandit",
+                {
+                  "if": "bruno > 0",
+                  "do": [
+                    "say Bruno sits down very carefully. The chief laughs, tosses you the key. \"Sour road anyway. We're gone by frost.\"",
+                    "give barrow_key",
+                    "set chief_dealt = true",
+                    "set chief_spared = true"
+                  ],
+                  "else": [
+                    "say Bruno convinces YOU, mostly of gravity.",
+                    "call wound",
+                    "goto bandit_fight"
+                  ]
+                }
+              ],
+              "exit": true
+            },
+            {
+              "text": "Back down (leave)",
+              "exit": true
+            }
+          ]
+        },
+        "buy": {
+          "text": "\"Fifteen.\" She weighs the key, then your face, then the key. \"Done. Pleasure doing business with the doomed.\" The gold vanishes into her coat; the key lands cold in your palm.",
+          "do": [
+            "set gold = gold - 15",
+            "give barrow_key",
+            "set chief_dealt = true",
+            "set chief_spared = true"
+          ],
+          "responses": [
+            {
+              "text": "\"Enjoy retirement.\" (leave)",
+              "exit": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}
